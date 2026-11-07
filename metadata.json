@@ -1,0 +1,6 @@
+{
+  "name": "MJ Newspaper Studio",
+  "description": "Professional newspaper creator studio for creating, editing, and exporting authentic Michael Jackson-themed broadsheet and tabloid newspapers.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
