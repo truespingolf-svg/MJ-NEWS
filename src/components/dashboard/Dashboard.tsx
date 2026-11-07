@@ -86,7 +86,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-neutral-950 text-neutral-100 flex flex-col font-sans-studio">
+    <div className="min-h-full pb-16 bg-neutral-950 text-neutral-100 flex flex-col font-sans-studio">
       {/* Top Banner Navigation */}
       <header className="border-b border-neutral-800 bg-neutral-950/80 backdrop-blur px-8 py-4 flex items-center justify-between sticky top-0 z-20">
         <div className="flex items-center gap-3">
