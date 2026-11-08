@@ -277,7 +277,7 @@ export const NewspaperPageRenderer: React.FC<NewspaperPageRendererProps> = ({
 
   return (
     <div
-      className={`newsprint-paper p-8 w-[800px] min-h-[1130px] flex flex-col justify-between select-none mx-auto relative ${className}`}
+      className={`newsprint-paper p-6 sm:p-8 w-[800px] max-w-full min-h-[1050px] flex flex-col justify-between select-none mx-auto relative ${className}`}
       onClick={() => {
         // Deselect if clicked blank background
         // Handled in parent

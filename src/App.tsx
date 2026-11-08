@@ -26,9 +26,14 @@ import { InspectorSidebar } from './components/editor/InspectorSidebar.tsx';
 import { NewspaperPageRenderer } from './components/canvas/NewspaperPageRenderer.tsx';
 import { LayoutPickerModal } from './components/editor/LayoutPickerModal.tsx';
 import { PdfExportModal } from './components/export/PdfExportModal.tsx';
+import { PublishNewspaperModal } from './components/editor/PublishNewspaperModal.tsx';
+import { FlipbookReader } from './components/canvas/FlipbookReader.tsx';
 import { downloadProjectPdf } from './services/pdfExport.ts';
 
-// New Feature Expansion Modules
+// New Feature Expansion & MJJ Records Portal Modules
+import { MjjRecordsPortal } from './components/portal/MjjRecordsPortal.tsx';
+import { NewsprintTextureOverlay } from './components/common/NewsprintTextureOverlay.tsx';
+import { StaffPasscodeModal } from './components/common/StaffPasscodeModal.tsx';
 import { TopNavigation, MainAppView } from './components/common/TopNavigation.tsx';
 import { TicketStudio } from './components/ticket/TicketStudio.tsx';
 import { AuthorisationCentre } from './components/authorisation/AuthorisationCentre.tsx';
@@ -43,8 +48,16 @@ import {
 import { loadOrganizationBranding } from './services/brandingStorage.ts';
 import { OrganizationBranding } from './types/branding.ts';
 
+type AppMode = 'public' | 'staff';
+
 export default function App() {
-  // Top-level suite view
+  // App mode: public portal (default) vs staff studio
+  const [appMode, setAppMode] = useState<AppMode>('public');
+  const [isStaffAuthenticated, setIsStaffAuthenticated] = useState<boolean>(false);
+  const [showPasscodeModal, setShowPasscodeModal] = useState<boolean>(false);
+  const [textureEnabled, setTextureEnabled] = useState<boolean>(true);
+
+  // Top-level staff view
   const [mainView, setMainView] = useState<MainAppView>('newspaper');
   const [isAuthorisationUnlocked, setIsAuthorisationUnlocked] = useState<boolean>(false);
   const [isBrandingModalOpen, setIsBrandingModalOpen] = useState<boolean>(false);
@@ -75,6 +88,8 @@ export default function App() {
   const [isLayoutModalOpen, setIsLayoutModalOpen] = useState<boolean>(false);
   const [layoutModalMode, setLayoutModalMode] = useState<'add' | 'change'>('add');
   const [isPdfModalOpen, setIsPdfModalOpen] = useState<boolean>(false);
+  const [isPublishModalOpen, setIsPublishModalOpen] = useState<boolean>(false);
+  const [activeFlipbookDoc, setActiveFlipbookDoc] = useState<NewspaperProject | null>(null);
 
   // Auto-save debounce state
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'unsaved'>('saved');
@@ -94,7 +109,37 @@ export default function App() {
     if (loaded.length > 0) {
       setCurrentProject(loaded[0]);
     }
+
+    // Fetch initial texture setting from server
+    fetch('/api/public/data')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.settings && typeof data.settings.newsprintTexture === 'boolean') {
+          setTextureEnabled(data.settings.newsprintTexture);
+        }
+      })
+      .catch(() => {});
   }, []);
+
+  // Toggle global newsprint texture setting & persist to backend
+  const handleToggleTexture = async () => {
+    const nextVal = !textureEnabled;
+    setTextureEnabled(nextVal);
+    try {
+      await fetch('/api/staff/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ newsprintTexture: nextVal }),
+      });
+    } catch (err) {
+      console.error('Failed to sync texture setting with server:', err);
+    }
+  };
+
+  // Staff passcode trigger (always require passcode entry)
+  const handleOpenStaffRequest = () => {
+    setShowPasscodeModal(true);
+  };
 
   // Debounced auto-save whenever currentProject changes
   useEffect(() => {
@@ -347,216 +392,253 @@ export default function App() {
   const activePage = currentProject?.pages[activePageIndex] || currentProject?.pages[0];
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-neutral-950 text-neutral-100 overflow-hidden font-sans-studio">
-      {/* Top Application Navigation */}
-      <TopNavigation
-        activeView={mainView}
-        onSelectView={(v) => {
-          setMainView(v);
-          refreshLibraryData();
-        }}
-        isAuthorisationUnlocked={isAuthorisationUnlocked}
-        onOpenBrandingKit={() => setIsBrandingModalOpen(true)}
-        saveStatus={mainView === 'newspaper' ? saveStatus : undefined}
-      />
+    <div className="h-screen w-screen flex flex-col bg-neutral-950 text-neutral-100 overflow-hidden font-sans-studio relative">
+      {/* Global Newsprint Paper Texture Overlay */}
+      <NewsprintTextureOverlay enabled={textureEnabled} />
 
-      {/* Main Suite Content Router */}
-      <div className="flex-1 flex flex-col overflow-hidden relative">
-        {/* VIEW 1: TICKETS & INVITATIONS STUDIO */}
-        {mainView === 'tickets' && (
-          <TicketStudio
+      {/* PUBLIC PORTAL VS STAFF STUDIO ROUTER */}
+      {appMode === 'public' ? (
+        <MjjRecordsPortal
+          onOpenStaffPortal={handleOpenStaffRequest}
+          textureEnabled={textureEnabled}
+          onToggleTexture={handleToggleTexture}
+        />
+      ) : (
+        /* STAFF CREATOR STUDIO */
+        <div className="flex-1 flex flex-col overflow-hidden relative z-10">
+          {/* Top Staff Navigation Bar */}
+          <TopNavigation
+            activeView={mainView}
+            onSelectView={(v) => {
+              if (v === 'authorisation') {
+                setIsAuthorisationUnlocked(false);
+              }
+              setMainView(v);
+              refreshLibraryData();
+            }}
+            isAuthorisationUnlocked={isAuthorisationUnlocked}
             onOpenBrandingKit={() => setIsBrandingModalOpen(true)}
-            brandingOrganizationName={branding.name}
+            onReturnToPublicPortal={() => {
+              setAppMode('public');
+              setIsStaffAuthenticated(false);
+              setIsAuthorisationUnlocked(false);
+            }}
+            textureEnabled={textureEnabled}
+            onToggleTexture={handleToggleTexture}
           />
-        )}
 
-        {/* VIEW 2: AUTHORISATION CENTRE (PASSWORD GATE: 2513) */}
-        {mainView === 'authorisation' && (
-          <AuthorisationCentre
-            isUnlocked={isAuthorisationUnlocked}
-            onUnlock={() => setIsAuthorisationUnlocked(true)}
-            onLock={() => setIsAuthorisationUnlocked(false)}
-            onOpenBrandingKit={() => setIsBrandingModalOpen(true)}
-            brandingOrganizationName={branding.name}
-          />
-        )}
+          {/* Staff Main View Router */}
+          <div className="flex-1 flex flex-col overflow-hidden relative">
+            {/* VIEW 1: TICKETS & INVITATIONS STUDIO */}
+            {mainView === 'tickets' && (
+              <TicketStudio
+                onOpenBrandingKit={() => setIsBrandingModalOpen(true)}
+                brandingOrganizationName={branding.name}
+              />
+            )}
 
-        {/* VIEW 3: CENTRAL DOCUMENT LIBRARY */}
-        {mainView === 'library' && (
-          <DocumentLibrary
-            newspapers={projects}
-            tickets={ticketsList}
-            authorisationDocs={authorisationList}
-            onOpenNewspaper={(id) => {
-              handleOpenProject(id);
-              setMainView('newspaper');
-              setView('editor');
-            }}
-            onOpenTicket={() => {
-              setMainView('tickets');
-            }}
-            onOpenAuthorisationDoc={() => {
-              setIsAuthorisationUnlocked(true);
-              setMainView('authorisation');
-            }}
-            onDuplicateNewspaper={(id) => {
-              handleDuplicateProject(id);
-              refreshLibraryData();
-            }}
-            onDuplicateTicket={(id) => {
-              duplicateTicket(id);
-              refreshLibraryData();
-            }}
-            onDuplicateAuthorisationDoc={(id) => {
-              duplicateAuthorisationDoc(id);
-              refreshLibraryData();
-            }}
-            onDeleteNewspaper={(id) => {
-              handleDeleteProject(id);
-              refreshLibraryData();
-            }}
-            onDeleteTicket={(id) => {
-              deleteTicket(id);
-              refreshLibraryData();
-            }}
-            onDeleteAuthorisationDoc={(id) => {
-              deleteAuthorisationDoc(id);
-              refreshLibraryData();
-            }}
-            onNavigateToTab={(tab) => setMainView(tab)}
-          />
-        )}
+            {/* VIEW 2: AUTHORISATION CENTRE & CODES / PUBLISHING */}
+            {mainView === 'authorisation' && (
+              <AuthorisationCentre
+                isUnlocked={isAuthorisationUnlocked}
+                onUnlock={() => setIsAuthorisationUnlocked(true)}
+                onLock={() => setIsAuthorisationUnlocked(false)}
+                onOpenBrandingKit={() => setIsBrandingModalOpen(true)}
+                brandingOrganizationName={branding.name}
+              />
+            )}
 
-        {/* VIEW 4: BROADSHEET NEWSPAPER STUDIO (PRESERVED IN FULL) */}
-        {mainView === 'newspaper' && (
-          <>
-            {view === 'dashboard' || !currentProject ? (
-              <div className="flex-1 overflow-y-auto w-full">
-                <Dashboard
-                  projects={projects}
-                  onCreateNew={handleCreateNewProject}
-                  onOpenProject={handleOpenProject}
-                  onDuplicateProject={handleDuplicateProject}
-                  onDeleteProject={handleDeleteProject}
-                  onRenameProject={handleRenameProject}
-                  onExportJson={exportProjectToJson}
-                  onImportJson={handleImportJson}
-                />
-              </div>
-            ) : (
-              <div className="flex-1 flex flex-col overflow-hidden">
-                {/* Broadsheet Studio Sub-Header */}
-                <Header
-                  projectTitle={currentProject.title}
-                  onUpdateTitle={(title) => handleRenameProject(currentProject.id, title)}
-                  onBackToDashboard={() => setView('dashboard')}
-                  zoomLevel={zoomLevel}
-                  onSetZoom={setZoomLevel}
-                  previewMode={previewMode}
-                  onTogglePreviewMode={() => setPreviewMode(!previewMode)}
-                  onDownloadPdfStraight={handleDownloadPdfStraight}
-                  onPrintClick={() => window.print()}
-                  isExportingPdf={isExportingPdf}
-                  exportProgressText={exportProgressText}
-                  saveStatus={saveStatus}
-                  pageCount={currentProject.pages.length}
-                />
+            {/* VIEW 3: CENTRAL DOCUMENT LIBRARY */}
+            {mainView === 'library' && (
+              <DocumentLibrary
+                newspapers={projects}
+                tickets={ticketsList}
+                authorisationDocs={authorisationList}
+                onOpenNewspaper={(id) => {
+                  handleOpenProject(id);
+                  setMainView('newspaper');
+                  setView('editor');
+                }}
+                onOpenTicket={() => {
+                  setMainView('tickets');
+                }}
+                onOpenAuthorisationDoc={() => {
+                  setIsAuthorisationUnlocked(true);
+                  setMainView('authorisation');
+                }}
+                onDuplicateNewspaper={(id) => {
+                  handleDuplicateProject(id);
+                  refreshLibraryData();
+                }}
+                onDuplicateTicket={(id) => {
+                  duplicateTicket(id);
+                  refreshLibraryData();
+                }}
+                onDuplicateAuthorisationDoc={(id) => {
+                  duplicateAuthorisationDoc(id);
+                  refreshLibraryData();
+                }}
+                onDeleteNewspaper={(id) => {
+                  handleDeleteProject(id);
+                  refreshLibraryData();
+                }}
+                onDeleteTicket={(id) => {
+                  deleteTicket(id);
+                  refreshLibraryData();
+                }}
+                onDeleteAuthorisationDoc={(id) => {
+                  deleteAuthorisationDoc(id);
+                  refreshLibraryData();
+                }}
+                onNavigateToTab={(tab) => setMainView(tab)}
+              />
+            )}
 
-                {/* 3-Section Newspaper Studio Workspace */}
-                <div className="flex-1 flex overflow-hidden">
-                  {/* LEFT SIDEBAR: Page Management */}
-                  <PageManagerSidebar
-                    project={currentProject}
-                    activePageIndex={activePageIndex}
-                    onSelectPage={(index) => {
-                      setActivePageIndex(index);
-                      setSelectedElementId(null);
-                      setSelectedImageSlot(null);
-                    }}
-                    onAddPageClick={() => {
-                      setLayoutModalMode('add');
-                      setIsLayoutModalOpen(true);
-                    }}
-                    onDuplicatePage={handleDuplicatePage}
-                    onDeletePage={handleDeletePage}
-                    onMovePage={handleMovePage}
-                    onChangeLayoutClick={() => {
-                      setLayoutModalMode('change');
-                      setIsLayoutModalOpen(true);
-                    }}
-                  />
-
-                  {/* CENTER: Canvas Drafting Board */}
-                  <main
-                    className="flex-1 bg-[#1a191b] overflow-auto flex items-start justify-center p-8 relative select-none"
-                    onClick={() => {
-                      setSelectedElementId(null);
-                      setSelectedImageSlot(null);
-                    }}
-                  >
-                    {/* Subtle grid pattern background */}
-                    <div
-                      className="absolute inset-0 pointer-events-none opacity-10"
-                      style={{
-                        backgroundImage:
-                          'radial-gradient(circle at 1px 1px, #d4af37 1px, transparent 0)',
-                        backgroundSize: '24px 24px',
-                      }}
+            {/* VIEW 4: BROADSHEET NEWSPAPER STUDIO */}
+            {mainView === 'newspaper' && (
+              <>
+                {view === 'dashboard' || !currentProject ? (
+                  <div className="flex-1 overflow-y-auto w-full">
+                    <Dashboard
+                      projects={projects}
+                      onCreateNew={handleCreateNewProject}
+                      onOpenProject={handleOpenProject}
+                      onDuplicateProject={handleDuplicateProject}
+                      onDeleteProject={handleDeleteProject}
+                      onRenameProject={handleRenameProject}
+                      onExportJson={exportProjectToJson}
+                      onImportJson={handleImportJson}
+                    />
+                  </div>
+                ) : (
+                  <div className="flex-1 flex flex-col overflow-hidden">
+                    {/* Broadsheet Studio Sub-Header */}
+                    <Header
+                      projectTitle={currentProject.title}
+                      onUpdateTitle={(title) => handleRenameProject(currentProject.id, title)}
+                      onBackToDashboard={() => setView('dashboard')}
+                      zoomLevel={zoomLevel}
+                      onSetZoom={setZoomLevel}
+                      previewMode={previewMode}
+                      onTogglePreviewMode={() => setPreviewMode(!previewMode)}
+                      onDownloadPdfStraight={handleDownloadPdfStraight}
+                      onPrintClick={() => window.print()}
+                      isExportingPdf={isExportingPdf}
+                      exportProgressText={exportProgressText}
+                      saveStatus={saveStatus}
+                      pageCount={currentProject.pages.length}
+                      onOpenPublishModal={() => setIsPublishModalOpen(true)}
+                      onOpenFlipbookPreview={() => setActiveFlipbookDoc(currentProject)}
                     />
 
-                    {/* Scaled Newspaper Sheet */}
-                    {activePage && (
-                      <div
-                        className="transition-transform duration-100 ease-out origin-top shadow-2xl relative my-4"
-                        style={{
-                          transform: `scale(${zoomLevel})`,
+                    {/* 3-Section Newspaper Studio Workspace */}
+                    <div className="flex-1 flex overflow-hidden">
+                      {/* LEFT SIDEBAR: Page Management */}
+                      <PageManagerSidebar
+                        project={currentProject}
+                        activePageIndex={activePageIndex}
+                        onSelectPage={(index) => {
+                          setActivePageIndex(index);
+                          setSelectedElementId(null);
+                          setSelectedImageSlot(null);
                         }}
-                        onClick={(e) => e.stopPropagation()}
+                        onAddPageClick={() => {
+                          setLayoutModalMode('add');
+                          setIsLayoutModalOpen(true);
+                        }}
+                        onDuplicatePage={handleDuplicatePage}
+                        onDeletePage={handleDeletePage}
+                        onMovePage={handleMovePage}
+                        onChangeLayoutClick={() => {
+                          setLayoutModalMode('change');
+                          setIsLayoutModalOpen(true);
+                        }}
+                      />
+
+                      {/* CENTER: Canvas Drafting Board */}
+                      <main
+                        className="flex-1 bg-[#1a191b] overflow-auto flex items-start justify-center p-2 sm:p-4 md:p-8 relative select-none"
+                        onClick={() => {
+                          setSelectedElementId(null);
+                          setSelectedImageSlot(null);
+                        }}
                       >
-                        <NewspaperPageRenderer
+                        {/* Subtle grid pattern background */}
+                        <div
+                          className="absolute inset-0 pointer-events-none opacity-10"
+                          style={{
+                            backgroundImage:
+                              'radial-gradient(circle at 1px 1px, #d4af37 1px, transparent 0)',
+                            backgroundSize: '24px 24px',
+                          }}
+                        />
+
+                        {/* Scaled Newspaper Sheet */}
+                        {activePage && (
+                          <div
+                            className="transition-transform duration-100 ease-out origin-top shadow-2xl relative my-4"
+                            style={{
+                              transform: `scale(${zoomLevel})`,
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <NewspaperPageRenderer
+                              page={activePage}
+                              selectedElementId={selectedElementId}
+                              selectedImageSlot={selectedImageSlot}
+                              onSelectText={(id) => {
+                                setSelectedElementId(id);
+                                setSelectedImageSlot(null);
+                              }}
+                              onSelectImage={(slot) => {
+                                setSelectedImageSlot(slot);
+                                setSelectedElementId(null);
+                              }}
+                              previewMode={previewMode}
+                            />
+                          </div>
+                        )}
+                      </main>
+
+                      {/* RIGHT SIDEBAR: Element Formatting & Inspector */}
+                      {activePage && (
+                        <InspectorSidebar
                           page={activePage}
                           selectedElementId={selectedElementId}
                           selectedImageSlot={selectedImageSlot}
-                          onSelectText={(id) => {
-                            setSelectedElementId(id);
+                          onUpdateText={handleUpdateText}
+                          onUpdateImage={handleUpdateImage}
+                          onResetImage={handleResetImage}
+                          onUpdatePageHeader={handleUpdatePageHeader}
+                          onChangeLayoutClick={() => {
+                            setLayoutModalMode('change');
+                            setIsLayoutModalOpen(true);
+                          }}
+                          onDeselect={() => {
+                            setSelectedElementId(null);
                             setSelectedImageSlot(null);
                           }}
-                          onSelectImage={(slot) => {
-                            setSelectedImageSlot(slot);
-                            setSelectedElementId(null);
-                          }}
-                          previewMode={previewMode}
                         />
-                      </div>
-                    )}
-                  </main>
-
-                  {/* RIGHT SIDEBAR: Element Formatting & Inspector */}
-                  {activePage && (
-                    <InspectorSidebar
-                      page={activePage}
-                      selectedElementId={selectedElementId}
-                      selectedImageSlot={selectedImageSlot}
-                      onUpdateText={handleUpdateText}
-                      onUpdateImage={handleUpdateImage}
-                      onResetImage={handleResetImage}
-                      onUpdatePageHeader={handleUpdatePageHeader}
-                      onChangeLayoutClick={() => {
-                        setLayoutModalMode('change');
-                        setIsLayoutModalOpen(true);
-                      }}
-                      onDeselect={() => {
-                        setSelectedElementId(null);
-                        setSelectedImageSlot(null);
-                      }}
-                    />
-                  )}
-                </div>
-              </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </>
             )}
-          </>
-        )}
-      </div>
+          </div>
+        </div>
+      )}
+
+      {/* Staff Passcode Gate Modal (Code 2526) */}
+      <StaffPasscodeModal
+        isOpen={showPasscodeModal}
+        onClose={() => setShowPasscodeModal(false)}
+        onSuccess={() => {
+          setIsStaffAuthenticated(true);
+          setShowPasscodeModal(false);
+          setAppMode('staff');
+        }}
+      />
 
       {/* Global Organisation Branding Kit Modal */}
       <BrandingKitModal
@@ -588,6 +670,24 @@ export default function App() {
           isOpen={isPdfModalOpen}
           onClose={() => setIsPdfModalOpen(false)}
           project={currentProject}
+        />
+      )}
+
+      {/* Publish as Current Paper Modal */}
+      {currentProject && (
+        <PublishNewspaperModal
+          isOpen={isPublishModalOpen}
+          onClose={() => setIsPublishModalOpen(false)}
+          project={currentProject}
+          onOpenFlipbookPreview={() => setActiveFlipbookDoc(currentProject)}
+        />
+      )}
+
+      {/* 3D Flipbook Newspaper Reader Modal */}
+      {activeFlipbookDoc && (
+        <FlipbookReader
+          project={activeFlipbookDoc}
+          onClose={() => setActiveFlipbookDoc(null)}
         />
       )}
 

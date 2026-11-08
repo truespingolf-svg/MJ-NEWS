@@ -38,7 +38,7 @@ export const PageManagerSidebar: React.FC<PageManagerSidebarProps> = ({
   return (
     <aside
       aria-label="Page management"
-      className="w-72 bg-neutral-900 border-r border-neutral-800 flex flex-col h-full text-neutral-200 select-none shrink-0"
+      className="w-56 md:w-64 lg:w-72 bg-neutral-900 border-r border-neutral-800 flex flex-col h-full text-neutral-200 select-none shrink-0"
     >
       {/* Top action bar */}
       <div className="p-3 border-b border-neutral-800 flex items-center justify-between bg-neutral-950/40">

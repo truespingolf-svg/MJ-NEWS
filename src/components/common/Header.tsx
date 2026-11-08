@@ -28,6 +28,8 @@ interface HeaderProps {
   exportProgressText?: string;
   saveStatus: 'saved' | 'saving' | 'unsaved';
   pageCount: number;
+  onOpenPublishModal?: () => void;
+  onOpenFlipbookPreview?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -44,6 +46,8 @@ export const Header: React.FC<HeaderProps> = ({
   exportProgressText = '',
   saveStatus,
   pageCount,
+  onOpenPublishModal,
+  onOpenFlipbookPreview,
 }) => {
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [tempTitle, setTempTitle] = useState(projectTitle);
@@ -58,13 +62,13 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="h-14 bg-neutral-950 border-b border-neutral-800 px-4 flex items-center justify-between gap-4 text-neutral-100 select-none z-30 shrink-0">
+    <header className="min-h-14 h-auto py-2 bg-neutral-950 border-b border-neutral-800 px-3 sm:px-5 flex flex-wrap items-center justify-between gap-2.5 text-neutral-100 select-none z-30 shrink-0">
       {/* Zone 1: Brand & Back to Dashboard */}
-      <div className="flex items-center gap-3 shrink-0">
+      <div className="flex items-center gap-2.5 shrink-0">
         <button
           onClick={onBackToDashboard}
           aria-label="Back to dashboard"
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-neutral-300 hover:text-white hover:bg-neutral-800/80 transition-colors"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-neutral-300 hover:text-white hover:bg-neutral-800/80 transition-colors min-h-[36px]"
         >
           <ChevronLeft className="w-4 h-4 text-amber-400" />
           <span>Dashboard</span>
@@ -76,9 +80,9 @@ export const Header: React.FC<HeaderProps> = ({
           <div className="w-7 h-7 rounded-md bg-amber-400/10 border border-amber-400/30 flex items-center justify-center text-amber-400">
             <Newspaper className="w-4 h-4" />
           </div>
-          <span className="font-serif font-bold text-sm tracking-wide text-white uppercase flex items-center gap-1.5">
-            MJ NEWSPAPER STUDIO
-            <span className="text-[10px] font-sans font-medium px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+          <span className="font-serif font-bold text-xs sm:text-sm tracking-wide text-white uppercase flex items-center gap-1.5">
+            MJ STUDIO
+            <span className="text-[10px] font-sans font-medium px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 hidden sm:inline">
               Broadsheet
             </span>
           </span>
@@ -86,7 +90,7 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       {/* Zone 2: Project Title & Auto-Save status */}
-      <div className="flex items-center gap-2 max-w-md truncate">
+      <div className="flex items-center gap-2 max-w-[180px] sm:max-w-xs md:max-w-md truncate">
         {isEditingTitle ? (
           <div className="flex items-center gap-1">
             <input
@@ -96,7 +100,7 @@ export const Header: React.FC<HeaderProps> = ({
               onKeyDown={(e) => e.key === 'Enter' && handleTitleSubmit()}
               onBlur={handleTitleSubmit}
               autoFocus
-              className="px-2 py-1 bg-neutral-900 border border-amber-400 rounded text-xs text-white focus:outline-none w-64"
+              className="px-2 py-1 bg-neutral-900 border border-amber-400 rounded text-xs text-white focus:outline-none w-44 sm:w-64"
             />
             <button
               onClick={handleTitleSubmit}
@@ -114,12 +118,12 @@ export const Header: React.FC<HeaderProps> = ({
             className="group flex items-center gap-1.5 px-2 py-1 rounded hover:bg-neutral-900 text-xs font-medium text-neutral-200 transition-colors"
             title="Click to rename newspaper"
           >
-            <span className="truncate max-w-[220px]">{projectTitle}</span>
-            <Edit2 className="w-3 h-3 text-neutral-500 group-hover:text-amber-400 transition-colors" />
+            <span className="truncate max-w-[120px] sm:max-w-[200px]">{projectTitle}</span>
+            <Edit2 className="w-3 h-3 text-neutral-500 group-hover:text-amber-400 transition-colors shrink-0" />
           </button>
         )}
 
-        <div className="flex items-center gap-1.5 text-[11px] text-neutral-500">
+        <div className="flex items-center gap-1.5 text-[11px] text-neutral-500 shrink-0">
           <span>•</span>
           {saveStatus === 'saving' ? (
             <span className="text-amber-400">Saving...</span>
@@ -132,8 +136,8 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
 
-      {/* Zone 3: Canvas Controls, Preview Mode, and Export PDF */}
-      <div className="flex items-center gap-2 shrink-0">
+      {/* Zone 3: Canvas Controls, Publishing, 3D Flipbook, and Export PDF */}
+      <div className="flex items-center gap-2 overflow-x-auto max-w-full py-1 shrink-0">
         {/* Zoom Controls */}
         <div className="flex items-center gap-1 bg-neutral-900 border border-neutral-800 rounded-lg p-0.5 text-xs text-neutral-300">
           <button
@@ -145,7 +149,7 @@ export const Header: React.FC<HeaderProps> = ({
             <ZoomOut className="w-3.5 h-3.5" />
           </button>
 
-          <span className="px-1.5 font-mono text-[11px] text-neutral-400 min-w-[42px] text-center">
+          <span className="px-1.5 font-mono text-[11px] text-neutral-400 min-w-[38px] text-center">
             {Math.round(zoomLevel * 100)}%
           </span>
 
@@ -166,45 +170,37 @@ export const Header: React.FC<HeaderProps> = ({
           >
             Fit
           </button>
-
-          <button
-            onClick={() => onSetZoom(1.0)}
-            aria-label="Reset zoom to 100%"
-            className="px-1.5 py-1 text-[10px] text-neutral-400 hover:text-white hover:bg-neutral-800 rounded font-medium"
-            title="100% Scale"
-          >
-            100%
-          </button>
         </div>
 
-        {/* Preview Mode Toggle */}
-        <button
-          onClick={onTogglePreviewMode}
-          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
-            previewMode
-              ? 'bg-amber-400/15 border-amber-400/50 text-amber-300'
-              : 'bg-neutral-900 border-neutral-800 text-neutral-300 hover:text-white hover:bg-neutral-800'
-          }`}
-          title={previewMode ? 'Exit Print Preview Mode' : 'View Clean Print Preview (Hide Outlines)'}
-        >
-          {previewMode ? (
-            <>
-              <EyeOff className="w-3.5 h-3.5 text-amber-400" />
-              <span>Editing Outlines Off</span>
-            </>
-          ) : (
-            <>
-              <Eye className="w-3.5 h-3.5" />
-              <span>Preview</span>
-            </>
-          )}
-        </button>
+        {/* 3D Flipbook Preview Button */}
+        {onOpenFlipbookPreview && (
+          <button
+            onClick={onOpenFlipbookPreview}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg border border-amber-500/40 bg-neutral-900 text-amber-300 hover:bg-neutral-800 transition-colors shadow-sm whitespace-nowrap min-h-[36px]"
+            title="Preview Newspaper in 3D Flipbook Mode"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+            <span>3D Flipbook Preview</span>
+          </button>
+        )}
+
+        {/* Publish as Current Paper Button */}
+        {onOpenPublishModal && (
+          <button
+            onClick={onOpenPublishModal}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-black rounded-lg bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-black shadow-md transition-all font-sans whitespace-nowrap min-h-[36px]"
+            title="Publish this broadsheet to the public portal with broadcast timer"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Publish Current Paper</span>
+          </button>
+        )}
 
         {/* Print Broadsheet Shortcut */}
         <button
           onClick={onPrintClick}
           aria-label="Print Broadsheet"
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-neutral-800 bg-neutral-900 text-neutral-300 hover:text-white hover:bg-neutral-800 transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-neutral-800 bg-neutral-900 text-neutral-300 hover:text-white hover:bg-neutral-800 transition-colors whitespace-nowrap min-h-[36px]"
           title="Print / Save as PDF via Browser"
         >
           <Printer className="w-3.5 h-3.5 text-amber-400" />
@@ -216,7 +212,7 @@ export const Header: React.FC<HeaderProps> = ({
           onClick={onDownloadPdfStraight}
           disabled={isExportingPdf}
           aria-label="Download PDF"
-          className="flex items-center gap-2 px-4 py-1.5 text-xs font-bold bg-amber-400 hover:bg-amber-300 disabled:opacity-75 text-black rounded-lg shadow-md transition-all font-sans"
+          className="flex items-center gap-2 px-4 py-1.5 text-xs font-bold bg-amber-400 hover:bg-amber-300 disabled:opacity-75 text-black rounded-lg shadow-md transition-all font-sans whitespace-nowrap min-h-[36px]"
         >
           <Download className="w-3.5 h-3.5 stroke-[2.5]" />
           <span>{isExportingPdf ? (exportProgressText || 'Downloading PDF...') : 'DOWNLOAD PDF'}</span>

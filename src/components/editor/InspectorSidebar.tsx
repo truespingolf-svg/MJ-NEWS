@@ -91,7 +91,7 @@ export const InspectorSidebar: React.FC<InspectorSidebarProps> = ({
   return (
     <aside
       aria-label="Element editing panel"
-      className="w-80 bg-neutral-900 border-l border-neutral-800 flex flex-col h-full text-neutral-200 select-none shrink-0"
+      className="w-64 md:w-72 lg:w-80 bg-neutral-900 border-l border-neutral-800 flex flex-col h-full text-neutral-200 select-none shrink-0"
     >
       {/* Top Header */}
       <div className="p-3 border-b border-neutral-800 flex items-center justify-between bg-neutral-950/40">

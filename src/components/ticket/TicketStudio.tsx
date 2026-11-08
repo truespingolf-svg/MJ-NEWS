@@ -209,13 +209,13 @@ export const TicketStudio: React.FC<TicketStudioProps> = ({
   return (
     <div className="flex-1 flex flex-col h-full bg-[#0b0b0e] text-neutral-100 overflow-hidden font-sans">
       {/* Studio Header Bar */}
-      <div className="h-13 bg-[#111114] border-b border-[#222228] px-5 flex items-center justify-between gap-4 select-none shrink-0 z-20">
+      <div className="min-h-13 h-auto py-2 bg-[#111114] border-b border-[#222228] px-3 sm:px-5 flex flex-wrap items-center justify-between gap-2.5 select-none shrink-0 z-20">
         {/* Title & Document Switcher */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5 shrink-0">
           <select
             value={currentTicketId}
             onChange={(e) => setCurrentTicketId(e.target.value)}
-            className="bg-[#181820] border border-[#2e2e3a] text-xs font-semibold text-amber-400 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-amber-400 max-w-[220px] truncate"
+            className="bg-[#181820] border border-[#2e2e3a] text-xs font-semibold text-amber-400 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-amber-400 max-w-[170px] sm:max-w-[220px] truncate min-h-[34px]"
           >
             {tickets.map((t) => (
               <option key={t.id} value={t.id}>
@@ -236,7 +236,7 @@ export const TicketStudio: React.FC<TicketStudioProps> = ({
                     setIsEditingTitle(false);
                   }
                 }}
-                className="bg-[#181820] border border-amber-400 rounded px-2 py-1 text-xs text-white focus:outline-none w-48"
+                className="bg-[#181820] border border-amber-400 rounded px-2 py-1 text-xs text-white focus:outline-none w-36 sm:w-48"
                 autoFocus
               />
               <button
@@ -255,16 +255,16 @@ export const TicketStudio: React.FC<TicketStudioProps> = ({
                 setTempTitle(currentTicket.title);
                 setIsEditingTitle(true);
               }}
-              className="flex items-center gap-1.5 text-xs text-neutral-300 hover:text-white"
+              className="flex items-center gap-1.5 text-xs text-neutral-300 hover:text-white max-w-[120px] sm:max-w-[180px] truncate"
             >
-              <span className="font-semibold">{currentTicket.title}</span>
-              <Edit2 className="w-3 h-3 text-neutral-500" />
+              <span className="font-semibold truncate">{currentTicket.title}</span>
+              <Edit2 className="w-3 h-3 text-neutral-500 shrink-0" />
             </button>
           )}
 
           <button
             onClick={() => handleCreateNew()}
-            className="flex items-center gap-1 text-[11px] font-semibold text-amber-400 hover:text-amber-300 px-2 py-1 rounded hover:bg-neutral-800 transition-colors"
+            className="flex items-center gap-1 text-[11px] font-semibold text-amber-400 hover:text-amber-300 px-2 py-1.5 rounded hover:bg-neutral-800 transition-colors whitespace-nowrap min-h-[34px]"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>New Pass</span>
@@ -272,14 +272,14 @@ export const TicketStudio: React.FC<TicketStudioProps> = ({
         </div>
 
         {/* Center Template Picker Quick Dropdown */}
-        <div className="hidden lg:flex items-center gap-2 text-xs">
-          <span className="text-[11px] text-neutral-400">Template Style:</span>
+        <div className="flex items-center gap-2 text-xs shrink-0">
+          <span className="text-[11px] text-neutral-400 hidden sm:inline">Theme:</span>
           <select
             value={currentTicket.theme}
             onChange={(e) =>
               handleUpdateCurrentTicket({ theme: e.target.value as TicketStyleTheme })
             }
-            className="bg-[#181820] border border-[#2e2e3a] text-xs font-semibold text-white rounded px-2 py-1 focus:outline-none"
+            className="bg-[#181820] border border-[#2e2e3a] text-xs font-semibold text-white rounded px-2.5 py-1.5 focus:outline-none min-h-[34px]"
           >
             <option value="luxury-gold">Luxury Gold</option>
             <option value="modern-minimalist">Modern Minimalist</option>
@@ -296,7 +296,7 @@ export const TicketStudio: React.FC<TicketStudioProps> = ({
         </div>
 
         {/* Actions & Export */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 overflow-x-auto max-w-full py-0.5 shrink-0">
           {/* Zoom controls */}
           <div className="flex items-center gap-1 bg-[#181820] border border-[#2e2e3a] rounded-lg p-0.5 text-xs">
             <button
@@ -327,17 +327,18 @@ export const TicketStudio: React.FC<TicketStudioProps> = ({
           {/* Batch Generator */}
           <button
             onClick={() => setIsBatchModalOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-[#1c1c24] hover:bg-[#282834] text-neutral-200 hover:text-white border border-[#333342] rounded-lg transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-[#1c1c24] hover:bg-[#282834] text-neutral-200 hover:text-white border border-[#333342] rounded-lg transition-colors whitespace-nowrap min-h-[34px]"
             title="Generate numbered batches of tickets with guest lists"
           >
             <Layers className="w-3.5 h-3.5 text-amber-400" />
-            <span>Batch Pass Generator</span>
+            <span className="hidden sm:inline">Batch Pass Generator</span>
+            <span className="sm:hidden">Batch</span>
           </button>
 
           {/* Duplicate & Delete */}
           <button
             onClick={() => handleDuplicate(currentTicket.id)}
-            className="p-1.5 text-neutral-400 hover:text-white hover:bg-neutral-800 rounded"
+            className="p-1.5 text-neutral-400 hover:text-white hover:bg-neutral-800 rounded min-h-[34px] min-w-[34px] flex items-center justify-center"
             title="Duplicate Pass"
           >
             <Copy className="w-3.5 h-3.5" />
@@ -345,7 +346,7 @@ export const TicketStudio: React.FC<TicketStudioProps> = ({
 
           <button
             onClick={() => handleDelete(currentTicket.id)}
-            className="p-1.5 text-neutral-400 hover:text-red-400 hover:bg-neutral-800 rounded"
+            className="p-1.5 text-neutral-400 hover:text-red-400 hover:bg-neutral-800 rounded min-h-[34px] min-w-[34px] flex items-center justify-center"
             title="Delete Pass"
           >
             <Trash2 className="w-3.5 h-3.5" />
@@ -355,7 +356,7 @@ export const TicketStudio: React.FC<TicketStudioProps> = ({
           <button
             onClick={handleDownloadPng}
             disabled={isExporting}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-[#1c1c24] hover:bg-[#282834] text-neutral-200 hover:text-white border border-[#333342] rounded-lg transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-[#1c1c24] hover:bg-[#282834] text-neutral-200 hover:text-white border border-[#333342] rounded-lg transition-colors whitespace-nowrap min-h-[34px]"
             title="Download high-resolution image"
           >
             <FileImage className="w-3.5 h-3.5 text-amber-400" />
@@ -366,7 +367,7 @@ export const TicketStudio: React.FC<TicketStudioProps> = ({
           <button
             onClick={handleDownloadPdf}
             disabled={isExporting}
-            className="flex items-center gap-2 px-4 py-1.5 text-xs font-bold bg-amber-400 hover:bg-amber-300 text-black rounded-lg shadow-md transition-all font-sans"
+            className="flex items-center gap-2 px-4 py-1.5 text-xs font-bold bg-amber-400 hover:bg-amber-300 text-black rounded-lg shadow-md transition-all font-sans whitespace-nowrap min-h-[34px]"
           >
             <Download className="w-3.5 h-3.5 stroke-[2.5]" />
             <span>{isExporting ? (statusMessage || 'Downloading...') : 'DOWNLOAD PDF'}</span>

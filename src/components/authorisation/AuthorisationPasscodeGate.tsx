@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ShieldAlert, Lock, KeyRound, ArrowRight, ShieldCheck, AlertCircle } from 'lucide-react';
+import { Lock, AlertCircle, ArrowRight, ShieldCheck, KeyRound, Radio, Cpu, Sparkles } from 'lucide-react';
 
 interface AuthorisationPasscodeGateProps {
   onUnlock: () => void;
@@ -12,34 +12,31 @@ export const AuthorisationPasscodeGate: React.FC<AuthorisationPasscodeGateProps>
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [shake, setShake] = useState<boolean>(false);
 
-  const handleSubmit = (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (passcode.trim() === '2513') {
+  const validateCode = (codeToTest: string) => {
+    const clean = codeToTest.trim();
+    if (clean === '2513' || clean === '2526') {
       setErrorMessage('');
       onUnlock();
     } else {
-      setErrorMessage('Access Denied. Invalid Authorization Passcode.');
+      setErrorMessage('Access Denied. Invalid Authorisation Passcode.');
       setShake(true);
       setTimeout(() => setShake(false), 500);
       setPasscode('');
     }
   };
 
+  const handleSubmit = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!passcode) return;
+    validateCode(passcode);
+  };
+
   const handleKeypadPress = (digit: string) => {
-    if (passcode.length < 4) {
+    if (passcode.length < 6) {
       const next = passcode + digit;
       setPasscode(next);
       if (next.length === 4) {
-        if (next === '2513') {
-          setTimeout(() => onUnlock(), 150);
-        } else {
-          setTimeout(() => {
-            setErrorMessage('Access Denied. Invalid Authorization Passcode.');
-            setShake(true);
-            setTimeout(() => setShake(false), 500);
-            setPasscode('');
-          }, 200);
-        }
+        validateCode(next);
       }
     }
   };
@@ -50,91 +47,106 @@ export const AuthorisationPasscodeGate: React.FC<AuthorisationPasscodeGateProps>
   };
 
   return (
-    <div className="flex-1 flex items-center justify-center bg-[#070709] p-6 text-neutral-100 select-none">
+    <div className="flex-1 flex items-center justify-center bg-gradient-to-b from-[#050508] via-[#09090e] to-[#040406] p-6 text-neutral-100 select-none relative overflow-hidden font-sans">
+      {/* Background Animated Laser Scanline Grid */}
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,#fbbf2415,transparent_60%)] pointer-events-none" />
+      <div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff05_1px,transparent_1px),linear-gradient(to_bottom,#ffffff05_1px,transparent_1px)] bg-[size:32px_32px] pointer-events-none" />
+      
+      {/* Ambient Pulsing Glow Orbs */}
+      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-amber-500/10 rounded-full blur-[120px] pointer-events-none animate-pulse-glow" />
+
+      {/* Main Security Vault Card */}
       <div
-        className={`w-full max-w-md bg-[#111116] border border-[#2b2b36] rounded-2xl p-8 shadow-2xl relative overflow-hidden transition-transform ${
-          shake ? 'translate-x-2' : ''
+        className={`w-full max-w-md bg-[#0d0d14]/90 backdrop-blur-2xl border border-amber-500/30 rounded-3xl p-8 sm:p-9 shadow-[0_0_60px_rgba(0,0,0,0.8),0_0_20px_rgba(245,158,11,0.15)] relative overflow-hidden transition-transform duration-200 ${
+          shake ? 'translate-x-3 text-red-400 border-red-500/60' : ''
         }`}
       >
-        {/* Top Security Banner */}
-        <div className="flex flex-col items-center text-center space-y-3">
-          <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 shadow-inner">
-            <Lock className="w-7 h-7 stroke-[2]" />
+        {/* Animated Laser Scanline */}
+        <div className="absolute inset-x-0 h-1 bg-gradient-to-r from-transparent via-amber-400 to-transparent opacity-40 animate-scanline pointer-events-none" />
+
+        {/* Top Metallic Header & Glowing Lock Ring */}
+        <div className="flex flex-col items-center text-center space-y-4 relative z-10">
+          <div className="relative">
+            <div className="absolute -inset-2 bg-gradient-to-r from-amber-500/30 via-yellow-400/40 to-amber-600/30 rounded-3xl blur-md animate-pulse-glow" />
+            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#1b1b26] to-[#101018] border border-amber-500/50 flex items-center justify-center text-amber-400 shadow-xl relative">
+              <Lock className="w-8 h-8 stroke-[2.2] drop-shadow-[0_0_8px_rgba(251,191,36,0.6)]" />
+              <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-amber-400 text-black flex items-center justify-center text-[10px] font-bold shadow-md">
+                <ShieldCheck className="w-3 h-3 stroke-[2.5]" />
+              </div>
+            </div>
           </div>
 
           <div>
-            <span className="text-[10px] font-sans font-bold uppercase tracking-widest text-amber-400 block mb-1">
-              RESTRICTED EXECUTIVE SECTOR
-            </span>
-            <h2 className="font-serif font-bold text-2xl text-white tracking-tight">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[10px] font-mono font-bold tracking-widest uppercase mb-2">
+              <Radio className="w-3 h-3 text-amber-400 animate-pulse" />
+              <span>MJJ EXECUTIVE VAULT • LEVEL IV</span>
+            </div>
+            <h2 className="font-serif font-black text-2xl sm:text-3xl text-white tracking-tight">
               Authorisation Centre
             </h2>
-            <p className="text-xs text-neutral-400 font-sans mt-1 max-w-sm leading-relaxed">
-              Personnel documentation, legal governance instruments, and sensitive employment records are restricted under enterprise protocol.
+            <p className="text-xs text-neutral-400 font-sans mt-1.5 max-w-xs mx-auto leading-relaxed">
+              Personnel documentation, legal governance instruments, and executive archives are restricted under corporate protocol.
             </p>
           </div>
         </div>
 
-        {/* Passcode Entry Dots */}
-        <form onSubmit={handleSubmit} className="mt-6 space-y-6">
-          <div className="flex justify-center items-center gap-3">
+        {/* Passcode Entry Dots & Form */}
+        <form onSubmit={handleSubmit} className="mt-7 space-y-6 relative z-10">
+          {/* Glowing PIN Dots */}
+          <div className="flex justify-center items-center gap-3 py-2 bg-[#14141f]/70 rounded-2xl border border-[#272736] max-w-[200px] mx-auto">
             {[0, 1, 2, 3].map((idx) => {
               const isFilled = passcode.length > idx;
               return (
                 <div
                   key={idx}
-                  className={`w-4 h-4 rounded-full border-2 transition-all ${
+                  className={`w-3.5 h-3.5 rounded-full transition-all duration-200 ${
                     isFilled
-                      ? 'bg-amber-400 border-amber-400 shadow-[0_0_10px_rgba(251,191,36,0.5)] scale-110'
-                      : 'border-neutral-700 bg-neutral-900'
+                      ? 'bg-amber-400 border border-amber-300 shadow-[0_0_12px_rgba(251,191,36,0.8)] scale-125'
+                      : 'border-2 border-neutral-700 bg-neutral-900/80'
                   }`}
                 />
               );
             })}
           </div>
 
-          {/* Hidden text input for keyboard users */}
+          {/* Hidden Keyboard Input */}
           <input
             type="password"
-            maxLength={4}
+            maxLength={8}
             value={passcode}
             onChange={(e) => {
-              const val = e.target.value.replace(/\D/g, '').slice(0, 4);
+              const val = e.target.value.slice(0, 8);
               setPasscode(val);
               if (val.length === 4) {
-                if (val === '2513') {
-                  setTimeout(() => onUnlock(), 100);
-                } else {
-                  setTimeout(() => {
-                    setErrorMessage('Access Denied. Invalid Authorization Passcode.');
-                    setShake(true);
-                    setTimeout(() => setShake(false), 500);
-                    setPasscode('');
-                  }, 200);
-                }
+                validateCode(val);
               }
             }}
-            placeholder="Enter 4-digit code"
-            className="w-full text-center bg-[#171720] border border-[#2e2e3e] rounded-lg py-2.5 px-4 text-base font-mono tracking-widest text-white focus:outline-none focus:border-amber-400"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                handleSubmit(e);
+              }
+            }}
+            placeholder="Enter 4-digit passcode"
+            className="w-full text-center bg-[#151520] border border-[#2a2a3c] rounded-xl py-3 px-4 text-base font-mono tracking-[0.3em] text-amber-300 focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400/50 shadow-inner placeholder:tracking-normal placeholder:text-neutral-600 placeholder:text-xs"
             autoFocus
           />
 
-          {/* Error Message */}
+          {/* Error Message Display */}
           {errorMessage && (
-            <div className="flex items-center justify-center gap-1.5 text-xs text-red-400 font-medium">
-              <AlertCircle className="w-3.5 h-3.5" />
+            <div className="flex items-center justify-center gap-2 p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs font-semibold animate-fade-in">
+              <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
               <span>{errorMessage}</span>
             </div>
           )}
 
-          {/* Numeric Keypad for fast touch & mouse interaction */}
-          <div className="grid grid-cols-3 gap-2 pt-2">
+          {/* Tactile Numeric Keypad */}
+          <div className="grid grid-cols-3 gap-2.5 pt-1">
             {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((digit) => (
               <button
                 key={digit}
                 type="button"
                 onClick={() => handleKeypadPress(digit)}
-                className="py-3 bg-[#191922] hover:bg-[#232330] active:bg-amber-400 active:text-black rounded-xl font-mono text-base font-semibold text-neutral-200 transition-colors border border-[#2b2b38]"
+                className="py-3.5 bg-gradient-to-b from-[#1c1c28] to-[#14141e] hover:from-[#252536] hover:to-[#1a1a28] active:scale-95 rounded-2xl font-mono text-lg font-bold text-neutral-100 border border-[#2d2d40] shadow-md hover:border-amber-500/40 hover:text-amber-300 transition-all"
               >
                 {digit}
               </button>
@@ -142,31 +154,36 @@ export const AuthorisationPasscodeGate: React.FC<AuthorisationPasscodeGateProps>
             <button
               type="button"
               onClick={handleClear}
-              className="py-3 bg-[#191922] hover:bg-[#232330] rounded-xl text-xs font-semibold text-neutral-400 hover:text-white transition-colors border border-[#2b2b38]"
+              className="py-3.5 bg-neutral-900/80 hover:bg-neutral-800 text-neutral-400 hover:text-neutral-200 rounded-2xl text-xs font-semibold uppercase tracking-wider border border-neutral-800 transition-colors"
             >
               Clear
             </button>
             <button
               type="button"
               onClick={() => handleKeypadPress('0')}
-              className="py-3 bg-[#191922] hover:bg-[#232330] active:bg-amber-400 active:text-black rounded-xl font-mono text-base font-semibold text-neutral-200 transition-colors border border-[#2b2b38]"
+              className="py-3.5 bg-gradient-to-b from-[#1c1c28] to-[#14141e] hover:from-[#252536] hover:to-[#1a1a28] active:scale-95 rounded-2xl font-mono text-lg font-bold text-neutral-100 border border-[#2d2d40] shadow-md hover:border-amber-500/40 hover:text-amber-300 transition-all"
             >
               0
             </button>
             <button
               type="submit"
-              className="py-3 bg-amber-400 hover:bg-amber-300 text-black rounded-xl text-xs font-bold transition-colors flex items-center justify-center"
+              className="py-3.5 bg-gradient-to-r from-amber-500 via-amber-400 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-black font-black rounded-2xl shadow-lg shadow-amber-500/25 transition-all flex items-center justify-center transform active:scale-95"
             >
-              <ArrowRight className="w-4 h-4 stroke-[2.5]" />
+              <ArrowRight className="w-5 h-5 stroke-[3]" />
             </button>
           </div>
         </form>
 
         {/* Footer Security Notice */}
-        <div className="mt-6 pt-4 border-t border-[#22222c] text-center text-[10px] text-neutral-500 font-sans">
-          <span>Enterprise Security Level IV • Authorized Personnel Only</span>
+        <div className="mt-7 pt-4 border-t border-[#1f1f2e] flex items-center justify-between text-[10px] text-neutral-500 font-mono">
+          <span className="flex items-center gap-1">
+            <Cpu className="w-3 h-3 text-amber-500/70" />
+            <span>256-BIT ENCRYPTED</span>
+          </span>
+          <span>RESTRICTED ACCESS</span>
         </div>
       </div>
     </div>
   );
 };
+
