@@ -1,0 +1,96 @@
+{
+  "entities": {
+    "Newspaper": {
+      "title": "Newspaper Broadsheet",
+      "description": "Published or archived newspaper broadsheets",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "projectTitle": { "type": "string" },
+        "pages": { "type": "array" },
+        "publishedAt": { "type": "string" },
+        "expiresAt": { "type": "string" },
+        "isActive": { "type": "boolean" }
+      },
+      "required": ["id", "projectTitle"]
+    },
+    "Announcement": {
+      "title": "Announcement Ticker",
+      "description": "Public ticker announcements",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "text": { "type": "string" },
+        "active": { "type": "boolean" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "text"]
+    },
+    "PromoCode": {
+      "title": "Secret Reward Code",
+      "description": "Discord secret reward codes hidden in broadsheets",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "projectId": { "type": "string" },
+        "pageIndex": { "type": "integer" },
+        "probability": { "type": "number" },
+        "maxRedemptions": { "type": "integer" },
+        "redemptionsCount": { "type": "integer" },
+        "customMessage": { "type": "string" },
+        "active": { "type": "boolean" }
+      },
+      "required": ["id", "code"]
+    },
+    "Redemption": {
+      "title": "User Redemption Log",
+      "description": "Audited discord code redemptions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "discordUser": { "type": "string" },
+        "customMessage": { "type": "string" },
+        "redeemedAt": { "type": "string" }
+      },
+      "required": ["id", "code", "discordUser"]
+    },
+    "MarketingApplication": {
+      "title": "Marketing Application",
+      "description": "Applications submitted to work in marketing",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "discordUser": { "type": "string" },
+        "fullName": { "type": "string" },
+        "reason": { "type": "string" },
+        "submittedAt": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "discordUser", "reason"]
+    }
+  },
+  "firestore": {
+    "/newspapers/{newspaperId}": {
+      "schema": { "$ref": "#/entities/Newspaper" },
+      "description": "Newspaper broadsheets collection"
+    },
+    "/announcements/{announcementId}": {
+      "schema": { "$ref": "#/entities/Announcement" },
+      "description": "Announcements collection"
+    },
+    "/promoCodes/{codeId}": {
+      "schema": { "$ref": "#/entities/PromoCode" },
+      "description": "Promo codes collection"
+    },
+    "/redemptions/{redemptionId}": {
+      "schema": { "$ref": "#/entities/Redemption" },
+      "description": "Redemptions collection"
+    },
+    "/marketingApplications/{appId}": {
+      "schema": { "$ref": "#/entities/MarketingApplication" },
+      "description": "Marketing applications collection"
+    }
+  }
+}

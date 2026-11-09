@@ -73,6 +73,18 @@ export const StaffPublishingManager: React.FC<StaffPublishingManagerProps> = ({
     }
   };
 
+  const fetchAnnouncements = async () => {
+    try {
+      const res = await fetch('/api/staff/announcements');
+      if (res.ok) {
+        const data = await res.json();
+        setAnnouncements(data.announcements || []);
+      }
+    } catch (err) {
+      console.error('Error fetching announcements:', err);
+    }
+  };
+
   useEffect(() => {
     const loaded = loadAllProjects();
     const activeList = loaded && loaded.length > 0 ? loaded : (propProjects || []);
@@ -83,10 +95,12 @@ export const StaffPublishingManager: React.FC<StaffPublishingManagerProps> = ({
 
     fetchPublicData();
     fetchSubmissions();
+    fetchAnnouncements();
     // Real-time polling sync every 2 seconds
     const interval = setInterval(() => {
       fetchPublicData();
       fetchSubmissions();
+      fetchAnnouncements();
     }, 2000);
     return () => clearInterval(interval);
   }, []);
@@ -188,6 +202,7 @@ export const StaffPublishingManager: React.FC<StaffPublishingManagerProps> = ({
       if (res.ok) {
         setNewAnnouncementText('');
         fetchPublicData();
+        fetchAnnouncements();
       }
     } catch (err) {
       console.error('Error adding announcement:', err);
@@ -199,6 +214,7 @@ export const StaffPublishingManager: React.FC<StaffPublishingManagerProps> = ({
       const res = await fetch(`/api/staff/announcements/${id}`, { method: 'DELETE' });
       if (res.ok) {
         fetchPublicData();
+        fetchAnnouncements();
       }
     } catch (err) {
       console.error('Error deleting announcement:', err);
