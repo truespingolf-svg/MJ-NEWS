@@ -16,6 +16,7 @@ import {
   Award,
   Globe,
   Star,
+  Bell,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { PublicMarqueeBanner } from '../common/PublicMarqueeBanner';
@@ -71,6 +72,7 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
   const [currentUserProfile, setCurrentUserProfile] = useState<UserProfile | null>(null);
   const [allCommunityUsers, setAllCommunityUsers] = useState<UserProfile[]>([]);
   const [showProfileModal, setShowProfileModal] = useState<boolean>(false);
+  const [profileModalTab, setProfileModalTab] = useState<'profile' | 'notifications'>('profile');
   const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
   const [isSigningIn, setIsSigningIn] = useState<boolean>(false);
 
@@ -476,29 +478,50 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
 
             {/* Google Sign-In or User Profile Badge */}
             {currentUserProfile ? (
-              <button
-                onClick={() => setShowProfileModal(true)}
-                className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-neutral-900 to-[#181824] hover:from-neutral-850 hover:to-[#202030] border border-amber-500/40 hover:border-amber-400 transition-all flex items-center gap-2 shadow-md cursor-pointer group"
-                title="View your player profile, Discord handle, points, and tickets"
-              >
-                {currentUserProfile.photoURL ? (
-                  <img
-                    src={currentUserProfile.photoURL}
-                    alt=""
-                    className="w-5 h-5 rounded-full object-cover border border-amber-400/60"
-                  />
-                ) : (
-                  <div className="w-5 h-5 rounded-full bg-amber-400 text-black flex items-center justify-center font-bold text-[10px]">
-                    {currentUserProfile.displayName?.[0]?.toUpperCase() || 'U'}
-                  </div>
-                )}
-                <span className="text-xs font-bold text-amber-300 group-hover:text-amber-200">
-                  {(currentUserProfile.discordUser || currentUserProfile.discordUsername) ? `@${currentUserProfile.discordUser || currentUserProfile.discordUsername}` : (currentUserProfile.displayName || 'Player')}
-                </span>
-                <span className="text-[10px] font-mono font-black bg-amber-500 text-black px-2 py-0.5 rounded-full">
-                  {(currentUserProfile.points || 0).toLocaleString()} PTS
-                </span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    setProfileModalTab('notifications');
+                    setShowProfileModal(true);
+                  }}
+                  className="p-2 rounded-xl bg-neutral-900 hover:bg-neutral-800 border border-amber-500/40 text-amber-300 relative transition-all flex items-center justify-center cursor-pointer shadow-md"
+                  title="View your staff notifications, codes, and PDF passes inbox"
+                >
+                  <Bell className="w-4 h-4" />
+                  {currentUserProfile.notifications && currentUserProfile.notifications.length > 0 && (
+                    <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-amber-500 text-black text-[10px] font-black flex items-center justify-center animate-bounce">
+                      {currentUserProfile.notifications.length}
+                    </span>
+                  )}
+                </button>
+
+                <button
+                  onClick={() => {
+                    setProfileModalTab('profile');
+                    setShowProfileModal(true);
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-neutral-900 to-[#181824] hover:from-neutral-850 hover:to-[#202030] border border-amber-500/40 hover:border-amber-400 transition-all flex items-center gap-2 shadow-md cursor-pointer group"
+                  title="View your player profile, Discord handle, points, and tickets"
+                >
+                  {currentUserProfile.photoURL ? (
+                    <img
+                      src={currentUserProfile.photoURL}
+                      alt=""
+                      className="w-5 h-5 rounded-full object-cover border border-amber-400/60"
+                    />
+                  ) : (
+                    <div className="w-5 h-5 rounded-full bg-amber-400 text-black flex items-center justify-center font-bold text-[10px]">
+                      {currentUserProfile.displayName?.[0]?.toUpperCase() || 'U'}
+                    </div>
+                  )}
+                  <span className="text-xs font-bold text-amber-300 group-hover:text-amber-200">
+                    {(currentUserProfile.discordUser || currentUserProfile.discordUsername) ? `@${currentUserProfile.discordUser || currentUserProfile.discordUsername}` : (currentUserProfile.displayName || 'Player')}
+                  </span>
+                  <span className="text-[10px] font-mono font-black bg-amber-500 text-black px-2 py-0.5 rounded-full">
+                    {(currentUserProfile.points || 0).toLocaleString()} PTS
+                  </span>
+                </button>
+              </div>
             ) : (
               <button
                 onClick={() => setShowAuthModal(true)}
@@ -1064,6 +1087,7 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
         onClose={() => setShowProfileModal(false)}
         profile={currentUserProfile}
         onLogout={handleLogout}
+        initialTab={profileModalTab}
       />
 
       {/* Foolproof Auth / Sign-In Modal */}

@@ -24,6 +24,7 @@ interface UserProfileModalProps {
   onClose: () => void;
   profile: UserProfile | null;
   onLogout: () => void;
+  initialTab?: 'profile' | 'notifications';
 }
 
 export const UserProfileModal: React.FC<UserProfileModalProps> = ({
@@ -31,13 +32,20 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   onClose,
   profile,
   onLogout,
+  initialTab = 'profile',
 }) => {
   const [isEditingDiscord, setIsEditingDiscord] = useState(false);
   const [discordInput, setDiscordInput] = useState(profile?.discordUser || '');
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState('');
   const [pointsPerVote, setPointsPerVote] = useState<number>(1000);
-  const [activeTab, setActiveTab] = useState<'profile' | 'notifications'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'notifications'>(initialTab);
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab, isOpen]);
 
   useEffect(() => {
     const unsub = subscribeVotingConfig((config) => {
