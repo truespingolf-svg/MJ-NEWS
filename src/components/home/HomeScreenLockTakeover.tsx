@@ -56,12 +56,12 @@ export const HomeScreenLockTakeover: React.FC = () => {
 
   const handleVerifyPasscode = (e: React.FormEvent) => {
     e.preventDefault();
-    if (pin.trim() === '2513') {
+    if (pin.trim() === '2526') {
       setStaffBypassed(true);
       setShowPinInput(false);
       setPinError('');
     } else {
-      setPinError('Invalid Passcode! (Default: 2513)');
+      setPinError('Invalid Password.');
     }
   };
 
@@ -129,7 +129,7 @@ export const HomeScreenLockTakeover: React.FC = () => {
               className="text-xs font-mono text-neutral-400 hover:text-amber-300 underline flex items-center gap-1 cursor-pointer transition-colors"
             >
               <KeyRound className="w-3.5 h-3.5" />
-              <span>Staff / Publisher Passcode Unlock</span>
+              <span>Unlock with Password</span>
             </button>
           ) : (
             <form onSubmit={handleVerifyPasscode} className="flex flex-col items-center gap-2">
@@ -138,7 +138,7 @@ export const HomeScreenLockTakeover: React.FC = () => {
                   type="password"
                   value={pin}
                   onChange={(e) => setPin(e.target.value)}
-                  placeholder="Passcode (2513)"
+                  placeholder="Enter password"
                   className="w-36 bg-neutral-950 border border-amber-500/40 rounded-xl px-3 py-1.5 text-xs text-center font-mono text-amber-300 focus:outline-none"
                   autoFocus
                 />

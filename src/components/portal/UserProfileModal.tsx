@@ -15,6 +15,7 @@ import {
   Calendar,
   ShieldCheck,
   Copy,
+  Bell,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -36,6 +37,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState('');
   const [pointsPerVote, setPointsPerVote] = useState<number>(1000);
+  const [activeTab, setActiveTab] = useState<'profile' | 'notifications'>('profile');
 
   useEffect(() => {
     const unsub = subscribeVotingConfig((config) => {
@@ -100,8 +102,41 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
           </button>
         </div>
 
+        {/* Tabs Bar */}
+        <div className="flex border-b border-[#222232] bg-[#12121c] px-6 pt-3 gap-4">
+          <button
+            onClick={() => setActiveTab('profile')}
+            className={`pb-3 text-xs font-bold border-b-2 transition-colors flex items-center gap-1.5 cursor-pointer ${
+              activeTab === 'profile'
+                ? 'border-amber-400 text-amber-300'
+                : 'border-transparent text-neutral-400 hover:text-neutral-200'
+            }`}
+          >
+            <User className="w-4 h-4" />
+            <span>Account Overview &amp; Passes</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('notifications')}
+            className={`pb-3 text-xs font-bold border-b-2 transition-colors flex items-center gap-1.5 cursor-pointer relative ${
+              activeTab === 'notifications'
+                ? 'border-amber-400 text-amber-300'
+                : 'border-transparent text-neutral-400 hover:text-neutral-200'
+            }`}
+          >
+            <Bell className="w-4 h-4" />
+            <span>Notifications &amp; Inbox</span>
+            {profile.notifications && profile.notifications.length > 0 && (
+              <span className="w-4 h-4 rounded-full bg-amber-500 text-black text-[10px] font-black flex items-center justify-center">
+                {profile.notifications.length}
+              </span>
+            )}
+          </button>
+        </div>
+
         {/* Content Body */}
         <div className="flex-1 p-6 overflow-y-auto space-y-6">
+          {activeTab === 'profile' ? (
+            <>
           {/* Discord Handle Section */}
           <div className="p-4 bg-[#151522] border border-[#2b2b3e] rounded-2xl space-y-2">
             <div className="flex items-center justify-between">
@@ -284,6 +319,53 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
               </div>
             )}
           </div>
+            </>
+          ) : (
+            /* NOTIFICATIONS & INBOX TAB */
+            <div className="space-y-4">
+              <div className="flex items-center justify-between pb-2 border-b border-[#222232]">
+                <h4 className="font-bold text-sm text-white flex items-center gap-2">
+                  <Bell className="w-4 h-4 text-amber-400" />
+                  <span>Staff Inbox &amp; Notifications ({profile.notifications?.length || 0})</span>
+                </h4>
+                <span className="text-[10px] font-mono text-neutral-500">REAL-TIME DISPATCH</span>
+              </div>
+
+              {(!profile.notifications || profile.notifications.length === 0) ? (
+                <div className="p-8 bg-neutral-950/70 border border-dashed border-neutral-800 rounded-2xl text-center space-y-2">
+                  <Bell className="w-8 h-8 text-neutral-600 mx-auto" />
+                  <p className="text-xs text-neutral-400 font-mono">Your inbox is currently empty.</p>
+                  <p className="text-[11px] text-neutral-500">
+                    Concert VIP passes, reward codes, and staff announcements sent to you will appear here instantly.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {profile.notifications.map((notif) => (
+                    <div
+                      key={notif.id}
+                      className="p-4 bg-[#151522] border border-amber-500/30 rounded-2xl space-y-2 relative overflow-hidden shadow-md"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <span className="text-[9px] font-mono uppercase px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/30">
+                            {notif.type.toUpperCase()} DISPATCH
+                          </span>
+                          <h5 className="font-bold text-sm text-white mt-1">{notif.title}</h5>
+                        </div>
+                        <span className="text-[10px] font-mono text-neutral-500">
+                          {new Date(notif.issuedAt).toLocaleDateString()}
+                        </span>
+                      </div>
+                      <p className="text-xs text-neutral-300 font-sans leading-relaxed">
+                        {notif.message}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Footer with Logout */}

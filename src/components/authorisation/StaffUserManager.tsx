@@ -11,6 +11,7 @@ import {
   subscribeHomeLockConfig,
   setHomeLockConfigInFirestore,
   clearHomeLockConfigInFirestore,
+  deleteUserAccountInFirestore,
 } from '../../services/firestoreStorage.ts';
 import {
   Users,
@@ -37,6 +38,7 @@ import {
   Play,
   Square,
   Unlock,
+  Trash2,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -282,6 +284,32 @@ export const StaffUserManager: React.FC = () => {
       }
     } catch {
       setStatusMsg({ type: 'error', text: 'Failed to adjust points.' });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDeleteAccount = async (targetUid: string, name: string) => {
+    if (!window.confirm(`Are you sure you want to completely delete account "${name}"? This will wipe the account from the database so they can create a new one with the same details.`)) {
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      const ok = await deleteUserAccountInFirestore(targetUid);
+      if (ok) {
+        setStatusMsg({
+          type: 'success',
+          text: `Account "${name}" was successfully wiped from the database.`,
+        });
+        if (selectedUser?.uid === targetUid) {
+          setSelectedUser(null);
+          setActiveModal(null);
+        }
+      } else {
+        setStatusMsg({ type: 'error', text: 'Failed to delete account from database.' });
+      }
+    } catch {
+      setStatusMsg({ type: 'error', text: 'Error deleting account.' });
     } finally {
       setIsSubmitting(false);
     }
@@ -613,10 +641,18 @@ export const StaffUserManager: React.FC = () => {
                     setSelectedUser(user);
                     setActiveModal('points');
                   }}
-                  className="py-1.5 px-2.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-lg text-xs font-semibold"
+                  className="py-1.5 px-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-lg text-xs font-semibold"
                   title="Adjust Points"
                 >
                   ± Pts
+                </button>
+
+                <button
+                  onClick={() => handleDeleteAccount(user.uid, user.discordUser || user.displayName || user.email || 'User')}
+                  className="p-1.5 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 rounded-lg transition-colors cursor-pointer"
+                  title="Delete Account & Wipe from Database"
+                >
+                  <Trash2 className="w-4 h-4" />
                 </button>
               </div>
             </div>

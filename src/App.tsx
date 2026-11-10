@@ -645,6 +645,7 @@ export default function App() {
           setIsStaffAuthenticated(true);
           setShowPasscodeModal(false);
           setAppMode('staff');
+          setMainView('newspaper');
         }}
       />
 

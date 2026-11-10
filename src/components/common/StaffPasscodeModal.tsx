@@ -27,7 +27,7 @@ export const StaffPasscodeModal: React.FC<StaffPasscodeModalProps> = ({
 
   const validateCode = (codeToTest: string) => {
     const clean = codeToTest.trim();
-    if (clean === '2513' || clean === '2526') {
+    if (clean === '2526') {
       setErrorMsg('');
       triggerSuccess();
       setPasscode('');

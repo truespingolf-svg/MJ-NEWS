@@ -749,6 +749,15 @@ export interface UserAssignedCode {
   issuedAt: string;
 }
 
+export interface UserNotification {
+  id: string;
+  title: string;
+  message: string;
+  type: 'ticket' | 'code' | 'invite' | 'system';
+  issuedAt: string;
+  read?: boolean;
+}
+
 export interface UserProfile {
   uid: string;
   email: string | null;
@@ -764,6 +773,7 @@ export interface UserProfile {
   lastVotedMap?: Record<string, number>;
   tickets: UserTicketGrant[];
   assignedCodes: UserAssignedCode[];
+  notifications?: UserNotification[];
   createdAt: string;
   updatedAt: string;
 }
@@ -1056,8 +1066,9 @@ export async function sendTicketToUser(
 
     const user = snap.data() as UserProfile;
     const existingTickets = user.tickets || [];
+    const existingNotifs = user.notifications || [];
 
-    const newTicket: UserTicketGrant = {
+    const newTicket = {
       id: `ticket-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       ticketNumber: ticketData.ticketNumber || `MJJ-PASS-${Math.floor(100000 + Math.random() * 900000)}`,
       eventTitle: ticketData.eventTitle || 'MJJ Records Official VIP Press Event',
@@ -1070,10 +1081,20 @@ export async function sendTicketToUser(
       staffNote: ticketData.staffNote || 'Issued with compliments of the MJJ Records Authorisation Centre.',
     };
 
+    const newNotif = {
+      id: `notif-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      title: 'New VIP Pass Granted',
+      message: `You have been issued a VIP concert pass for "${newTicket.eventTitle}" (${newTicket.seatTier})!`,
+      type: 'ticket' as const,
+      issuedAt: new Date().toISOString(),
+      read: false,
+    };
+
     await setDoc(
       userRef,
       {
         tickets: [newTicket, ...existingTickets],
+        notifications: [newNotif, ...existingNotifs],
         updatedAt: new Date().toISOString(),
       },
       { merge: true }
@@ -1098,8 +1119,9 @@ export async function sendCodeToUser(
 
     const user = snap.data() as UserProfile;
     const existingCodes = user.assignedCodes || [];
+    const existingNotifs = user.notifications || [];
 
-    const newAssigned: UserAssignedCode = {
+    const newAssigned = {
       id: `code-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       code: codeData.code.trim().toUpperCase(),
       points: Number(codeData.points) || 1000,
@@ -1107,10 +1129,20 @@ export async function sendCodeToUser(
       issuedAt: new Date().toISOString(),
     };
 
+    const newNotif = {
+      id: `notif-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      title: `Reward Code Granted (+${newAssigned.points} PTS)`,
+      message: `Code "${newAssigned.code}" was sent to your inbox: "${newAssigned.customMessage}"`,
+      type: 'code' as const,
+      issuedAt: new Date().toISOString(),
+      read: false,
+    };
+
     await setDoc(
       userRef,
       {
         assignedCodes: [newAssigned, ...existingCodes],
+        notifications: [newNotif, ...existingNotifs],
         updatedAt: new Date().toISOString(),
       },
       { merge: true }
@@ -1119,6 +1151,18 @@ export async function sendCodeToUser(
     return true;
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, `users/${targetUid}`);
+    return false;
+  }
+}
+
+// Staff Delete User Account (Wipe from Database)
+export async function deleteUserAccountInFirestore(targetUid: string): Promise<boolean> {
+  if (!targetUid) return false;
+  try {
+    await deleteDoc(doc(db, 'users', targetUid));
+    return true;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, `users/${targetUid}`);
     return false;
   }
 }

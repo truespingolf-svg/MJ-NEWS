@@ -516,7 +516,7 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
               className="px-3.5 py-1.5 text-xs font-semibold rounded-xl bg-neutral-900 hover:bg-neutral-800 text-neutral-200 border border-neutral-700 transition-all flex items-center gap-1.5 shadow-md"
             >
               <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
-              <span>Staff Passcode</span>
+              <span>Unlock with Password</span>
             </button>
           </div>
         </div>
