@@ -4,6 +4,7 @@ import {
   setDoc,
   getDoc,
   getDocs,
+  addDoc,
   deleteDoc,
   onSnapshot,
   query,
@@ -286,10 +287,11 @@ export async function acceptSubmissionFirestore(submissionId: string): Promise<b
     const now = new Date();
     const durationMinutes = submission.durationMinutes || 1440;
     const expiresAt = new Date(now.getTime() + durationMinutes * 60 * 1000);
+    const pubId = submission.project.id || `project-${Date.now()}`;
 
     const publishedRecord = {
-      id: submission.project.id || `project-${Date.now()}`,
-      projectId: submission.project.id || `project-${Date.now()}`,
+      id: pubId,
+      projectId: pubId,
       projectTitle: submission.projectTitle,
       name: submission.projectTitle,
       title: submission.projectTitle,
@@ -301,8 +303,9 @@ export async function acceptSubmissionFirestore(submissionId: string): Promise<b
       projectData: submission.project,
     };
 
-    // Update published record and remove from moderation submissions
+    // Update system live published doc and store in published newspapers collection
     await setDoc(doc(db, 'system', 'publishedNewspaper'), publishedRecord);
+    await setDoc(doc(db, 'newspapers', pubId), publishedRecord);
     await deleteDoc(doc(db, 'submissions', submissionId));
     return true;
   } catch (err) {
@@ -326,10 +329,11 @@ export async function publishDirectFirestore(project: NewspaperProject, duration
   const safeMinutes = Math.max(1, Math.round(Number(durationMinutes) || 1440));
   const expiresAt = new Date(now.getTime() + safeMinutes * 60 * 1000);
   const projectTitle = project.title || 'MJJ Records Broadsheet Press';
+  const pubId = project.id || `project-${Date.now()}`;
 
   const publishedRecord = {
-    id: project.id || `project-${Date.now()}`,
-    projectId: project.id || `project-${Date.now()}`,
+    id: pubId,
+    projectId: pubId,
     projectTitle,
     name: projectTitle,
     title: projectTitle,
@@ -343,6 +347,7 @@ export async function publishDirectFirestore(project: NewspaperProject, duration
 
   try {
     await setDoc(doc(db, 'system', 'publishedNewspaper'), publishedRecord);
+    await setDoc(doc(db, 'newspapers', pubId), publishedRecord);
     return true;
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, 'system/publishedNewspaper');
@@ -356,10 +361,43 @@ export async function unpublishFirestore(): Promise<boolean> {
     if (snap.exists()) {
       const data = snap.data();
       await setDoc(doc(db, 'system', 'publishedNewspaper'), { ...data, isActive: false }, { merge: true });
+      if (data.id) {
+        await setDoc(doc(db, 'newspapers', data.id), { ...data, isActive: false }, { merge: true });
+      }
     }
     return true;
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, 'system/publishedNewspaper');
+    return false;
+  }
+}
+
+// Subscribe to all published broadsheets for the Public Archival Library
+export function subscribeAllPublishedNewspapers(callback: (newspapers: any[]) => void): () => void {
+  const colRef = collection(db, 'newspapers');
+  return onSnapshot(
+    colRef,
+    (snap) => {
+      const list: any[] = [];
+      snap.forEach((d) => {
+        list.push({ id: d.id, ...d.data() });
+      });
+      // Sort newest published first
+      list.sort((a, b) => new Date(b.publishedAt || b.createdAt || 0).getTime() - new Date(a.publishedAt || a.createdAt || 0).getTime());
+      callback(list);
+    },
+    (err) => {
+      handleFirestoreError(err, OperationType.LIST, 'newspapers');
+    }
+  );
+}
+
+export async function deletePublishedNewspaperFirestore(newspaperId: string): Promise<boolean> {
+  try {
+    await deleteDoc(doc(db, 'newspapers', newspaperId));
+    return true;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, `newspapers/${newspaperId}`);
     return false;
   }
 }
@@ -792,15 +830,17 @@ export async function reactToNewspaper(
     const reactedList = profile.reactedNewspaperIds || [];
     const alreadyReacted = reactedList.includes(newspaperId);
 
-    let pointsAwarded = 0;
-    let newPoints = profile.points || 0;
-    const updatedReacted = [...reactedList];
-
-    if (!alreadyReacted) {
-      pointsAwarded = 1000;
-      newPoints += 1000;
-      updatedReacted.push(newspaperId);
+    if (alreadyReacted) {
+      return {
+        success: false,
+        pointsAwarded: 0,
+        message: 'You have already reacted to this edition! Only 1 reaction is permitted per newspaper.',
+      };
     }
+
+    const pointsAwarded = 1000;
+    const newPoints = (profile.points || 0) + 1000;
+    const updatedReacted = [...reactedList, newspaperId];
 
     await setDoc(
       userRef,
@@ -812,7 +852,7 @@ export async function reactToNewspaper(
       { merge: true }
     );
 
-    // Also update global newspaper reactions counter
+    // Update global newspaper reactions counter
     const rxRef = doc(db, 'reactions', newspaperId);
     const rxSnap = await getDoc(rxRef);
     const currentCounts = rxSnap.exists() ? rxSnap.data() : {};
@@ -822,9 +862,7 @@ export async function reactToNewspaper(
     return {
       success: true,
       pointsAwarded,
-      message: alreadyReacted
-        ? `Reaction ${reactionEmoji} recorded!`
-        : `🎉 You reacted with ${reactionEmoji} and earned +1,000 Points!`,
+      message: `🎉 You reacted with ${reactionEmoji} and earned +1,000 Points!`,
     };
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, `users/${uid}`);
@@ -1193,4 +1231,404 @@ export async function redeemGeneralPointsCode(
     return { success: false, error: 'Failed to redeem points code. Please try again.' };
   }
 }
+
+// -------------------------------------------------------------
+// 9. COMMUNITY CHALLENGES & FAN PHOTO CONTESTS (CRUD & REAL-TIME)
+// -------------------------------------------------------------
+
+export interface CommunityChallenge {
+  id: string;
+  title: string;
+  description: string;
+  category: 'photo' | 'headline' | 'trivia' | 'general';
+  pointsReward: number;
+  status: 'active' | 'closed';
+  winnerEntryId?: string | null;
+  winnerDiscord?: string | null;
+  winnerUserId?: string | null;
+  winnerCaption?: string | null;
+  winnerImageUrl?: string | null;
+  winnerPointsAwarded?: number;
+  entriesCount?: number;
+  createdAt: string;
+  closedAt?: string | null;
+}
+
+export interface ChallengeEntry {
+  id: string;
+  challengeId: string;
+  userId: string;
+  discordUser: string;
+  userDisplayName?: string;
+  userPhotoURL?: string | null;
+  caption: string;
+  imageUrl?: string;
+  votes: number;
+  votedUserIds: string[];
+  createdAt: string;
+}
+
+// Subscribe to all challenges
+export function subscribeChallenges(callback: (challenges: CommunityChallenge[]) => void): () => void {
+  const colRef = collection(db, 'challenges');
+  return onSnapshot(
+    colRef,
+    (snap) => {
+      const list: CommunityChallenge[] = [];
+      snap.forEach((d) => {
+        list.push({ id: d.id, ...d.data() } as CommunityChallenge);
+      });
+      // Sort: active challenges first, then newest
+      list.sort((a, b) => {
+        if (a.status === 'active' && b.status !== 'active') return -1;
+        if (b.status === 'active' && a.status !== 'active') return 1;
+        return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+      });
+      callback(list);
+    },
+    (err) => {
+      handleFirestoreError(err, OperationType.LIST, 'challenges');
+    }
+  );
+}
+
+// Subscribe to entries for a specific challenge
+export function subscribeChallengeEntries(
+  challengeId: string,
+  callback: (entries: ChallengeEntry[]) => void
+): () => void {
+  if (!challengeId) {
+    callback([]);
+    return () => {};
+  }
+  const colRef = collection(db, 'challengeEntries');
+  return onSnapshot(
+    colRef,
+    (snap) => {
+      const list: ChallengeEntry[] = [];
+      snap.forEach((d) => {
+        const item = { id: d.id, ...d.data() } as ChallengeEntry;
+        if (item.challengeId === challengeId) {
+          list.push(item);
+        }
+      });
+      // Sort by votes descending, then date
+      list.sort((a, b) => (b.votes || 0) - (a.votes || 0) || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      callback(list);
+    },
+    (err) => {
+      handleFirestoreError(err, OperationType.LIST, 'challengeEntries');
+    }
+  );
+}
+
+// Create new challenge in Firestore (from Auth Centre)
+export async function createChallengeFirestore(
+  data: Omit<CommunityChallenge, 'id' | 'createdAt' | 'entriesCount' | 'status'>
+): Promise<string> {
+  const id = `challenge-${Date.now()}`;
+  const now = new Date().toISOString();
+  const challengeDoc: CommunityChallenge = {
+    ...data,
+    id,
+    status: 'active',
+    entriesCount: 0,
+    createdAt: now,
+  };
+
+  try {
+    await setDoc(doc(db, 'challenges', id), challengeDoc);
+    return id;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, `challenges/${id}`);
+    throw err;
+  }
+}
+
+// Close or reopen a challenge
+export async function setChallengeStatusFirestore(
+  challengeId: string,
+  status: 'active' | 'closed'
+): Promise<boolean> {
+  try {
+    await setDoc(
+      doc(db, 'challenges', challengeId),
+      {
+        status,
+        closedAt: status === 'closed' ? new Date().toISOString() : null,
+      },
+      { merge: true }
+    );
+    return true;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, `challenges/${challengeId}`);
+    return false;
+  }
+}
+
+// Submit a user entry for a challenge
+export async function submitChallengeEntryFirestore(data: {
+  challengeId: string;
+  userId: string;
+  discordUser: string;
+  userDisplayName?: string;
+  userPhotoURL?: string | null;
+  caption: string;
+  imageUrl?: string;
+}): Promise<{ success: boolean; entryId?: string; error?: string }> {
+  if (!data.challengeId || !data.discordUser?.trim()) {
+    return { success: false, error: 'Challenge and Discord username are required.' };
+  }
+
+  const id = `entry-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const now = new Date().toISOString();
+
+  const entry: ChallengeEntry = {
+    id,
+    challengeId: data.challengeId,
+    userId: data.userId || `user-${data.discordUser.toLowerCase().replace(/[^a-z0-9]/g, '')}`,
+    discordUser: data.discordUser.trim(),
+    userDisplayName: data.userDisplayName || data.discordUser.trim(),
+    userPhotoURL: data.userPhotoURL || null,
+    caption: data.caption?.trim() || 'Michael Jackson Community Submission',
+    imageUrl: data.imageUrl || '',
+    votes: 0,
+    votedUserIds: [],
+    createdAt: now,
+  };
+
+  try {
+    await setDoc(doc(db, 'challengeEntries', id), entry);
+
+    // Increment challenge entriesCount
+    const chRef = doc(db, 'challenges', data.challengeId);
+    const chSnap = await getDoc(chRef);
+    if (chSnap.exists()) {
+      const current = chSnap.data() as CommunityChallenge;
+      await setDoc(
+        chRef,
+        { entriesCount: (current.entriesCount || 0) + 1 },
+        { merge: true }
+      );
+    }
+
+    return { success: true, entryId: id };
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, `challengeEntries/${id}`);
+    return { success: false, error: 'Failed to submit challenge entry.' };
+  }
+}
+
+// Vote for a challenge entry (each user votes once per entry, awards entrant points)
+export async function voteForChallengeEntry(
+  entryId: string,
+  voterUid: string,
+  voterDiscord?: string
+): Promise<{ success: boolean; message: string; error?: string }> {
+  if (!entryId || !voterUid) {
+    return { success: false, message: '', error: 'Please sign in or enter your name to vote.' };
+  }
+
+  try {
+    const entryRef = doc(db, 'challengeEntries', entryId);
+    const snap = await getDoc(entryRef);
+    if (!snap.exists()) {
+      return { success: false, message: '', error: 'Entry not found.' };
+    }
+
+    const entry = snap.data() as ChallengeEntry;
+    const votedList = entry.votedUserIds || [];
+
+    const voterIdKey = voterUid.toLowerCase();
+    const voterDiscordKey = voterDiscord ? voterDiscord.toLowerCase() : '';
+
+    if (votedList.includes(voterIdKey) || (voterDiscordKey && votedList.includes(voterDiscordKey))) {
+      return { success: false, message: '', error: 'You have already voted for this entry!' };
+    }
+
+    const newVotes = (entry.votes || 0) + 1;
+    const newVotedList = [...votedList, voterIdKey];
+    if (voterDiscordKey) newVotedList.push(voterDiscordKey);
+
+    await setDoc(
+      entryRef,
+      {
+        votes: newVotes,
+        votedUserIds: newVotedList,
+      },
+      { merge: true }
+    );
+
+    // Reward entrant +50 points for each community vote!
+    if (entry.userId) {
+      const authorRef = doc(db, 'users', entry.userId);
+      const authorSnap = await getDoc(authorRef);
+      if (authorSnap.exists()) {
+        const u = authorSnap.data() as UserProfile;
+        await setDoc(
+          authorRef,
+          {
+            points: (u.points || 0) + 50,
+            votes: (u.votes || 0) + 1,
+            updatedAt: new Date().toISOString(),
+          },
+          { merge: true }
+        );
+      }
+    }
+
+    return {
+      success: true,
+      message: `Vote counted for @${entry.discordUser}! (+1 Vote)`,
+    };
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, `challengeEntries/${entryId}`);
+    return { success: false, message: '', error: 'Failed to cast vote.' };
+  }
+}
+
+// Staff Authorisation: Declare Winner & Distribute Points Reward
+export async function declareChallengeWinnerFirestore(
+  challengeId: string,
+  winnerEntry: ChallengeEntry,
+  pointsReward: number
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const now = new Date().toISOString();
+    const chRef = doc(db, 'challenges', challengeId);
+
+    // 1. Mark challenge as closed with winner details
+    await setDoc(
+      chRef,
+      {
+        status: 'closed',
+        winnerEntryId: winnerEntry.id,
+        winnerDiscord: winnerEntry.discordUser,
+        winnerUserId: winnerEntry.userId,
+        winnerCaption: winnerEntry.caption,
+        winnerImageUrl: winnerEntry.imageUrl || null,
+        winnerPointsAwarded: pointsReward,
+        closedAt: now,
+      },
+      { merge: true }
+    );
+
+    // 2. Award points to winner user profile
+    let winnerCredited = false;
+    if (winnerEntry.userId) {
+      const userRef = doc(db, 'users', winnerEntry.userId);
+      const userSnap = await getDoc(userRef);
+      if (userSnap.exists()) {
+        const u = userSnap.data() as UserProfile;
+        await setDoc(
+          userRef,
+          {
+            points: (u.points || 0) + pointsReward,
+            updatedAt: now,
+          },
+          { merge: true }
+        );
+        winnerCredited = true;
+      }
+    }
+
+    // Fallback: search users by discord handle if user wasn't credited directly by uid
+    if (!winnerCredited && winnerEntry.discordUser) {
+      const usersSnap = await getDocs(collection(db, 'users'));
+      for (const d of usersSnap.docs) {
+        const u = d.data() as UserProfile;
+        const uDiscord = (u.discordUser || u.discordUsername || '').toLowerCase();
+        if (uDiscord === winnerEntry.discordUser.toLowerCase()) {
+          await setDoc(
+            doc(db, 'users', d.id),
+            {
+              points: (u.points || 0) + pointsReward,
+              updatedAt: now,
+            },
+            { merge: true }
+          );
+          break;
+        }
+      }
+    }
+
+    // 3. Post a public announcement ticker celebrating the winner!
+    await addDoc(collection(db, 'announcements'), {
+      text: `🏆 CONTEST WINNER: @${winnerEntry.discordUser} has won the community challenge and claimed +${pointsReward.toLocaleString()} PTS!`,
+      active: true,
+      createdAt: now,
+    });
+
+    return {
+      success: true,
+      message: `🏆 Winner declared! @${winnerEntry.discordUser} was awarded +${pointsReward.toLocaleString()} points!`,
+    };
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, `challenges/${challengeId}`);
+    return { success: false, message: 'Failed to declare winner in Firestore.' };
+  }
+}
+
+// Delete challenge and its entries
+export async function deleteChallengeFirestore(challengeId: string): Promise<boolean> {
+  try {
+    await deleteDoc(doc(db, 'challenges', challengeId));
+    return true;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, `challenges/${challengeId}`);
+    return false;
+  }
+}
+
+// Foolproof community login / profile creator (supports direct Discord / display name when Google popup is blocked)
+export async function loginOrCreateCommunityPlayer(
+  discordUser: string,
+  displayName?: string,
+  photoURL?: string
+): Promise<UserProfile> {
+  const cleanDiscord = discordUser.trim().replace(/^@/, '');
+  const cleanUid = `player_${cleanDiscord.toLowerCase().replace(/[^a-z0-9_]/g, '')}`;
+  const now = new Date().toISOString();
+
+  const userRef = doc(db, 'users', cleanUid);
+  try {
+    const snap = await getDoc(userRef);
+    if (snap.exists()) {
+      const existing = snap.data() as UserProfile;
+      const updated: UserProfile = {
+        ...existing,
+        discordUser: cleanDiscord,
+        discordUsername: cleanDiscord,
+        displayName: displayName || existing.displayName || cleanDiscord,
+        photoURL: photoURL || existing.photoURL || null,
+        updatedAt: now,
+      };
+      await setDoc(userRef, updated, { merge: true });
+      return updated;
+    } else {
+      const newProfile: UserProfile = {
+        uid: cleanUid,
+        email: null,
+        displayName: displayName || cleanDiscord,
+        discordUser: cleanDiscord,
+        discordUsername: cleanDiscord,
+        points: 1000, // Welcome gift of 1,000 points!
+        votes: 0,
+        photoURL: photoURL || null,
+        reactedNewspaperIds: [],
+        votedUserIds: [],
+        tickets: [],
+        assignedCodes: [],
+        createdAt: now,
+        updatedAt: now,
+      };
+      await setDoc(userRef, newProfile);
+      return newProfile;
+    }
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, `users/${cleanUid}`);
+    throw err;
+  }
+}
+
 

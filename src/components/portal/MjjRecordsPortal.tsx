@@ -28,7 +28,7 @@ import {
   subscribePublishedNewspaper,
   subscribeAnnouncements,
   subscribePromoCodes,
-  subscribeProjects,
+  subscribeAllPublishedNewspapers,
   redeemCodeFirestore,
   submitApplicationFirestore,
   UserProfile,
@@ -40,6 +40,8 @@ import {
 import { CommunityLeaderboardSection } from './CommunityLeaderboardSection.tsx';
 import { UserProfileModal } from './UserProfileModal.tsx';
 import { NewspaperReactionBar } from './NewspaperReactionBar.tsx';
+import { CommunityChallengesSection } from './CommunityChallengesSection.tsx';
+import { AuthSignInModal } from './AuthSignInModal.tsx';
 import { LogIn, LogOut, User as UserIcon } from 'lucide-react';
 
 interface Announcement {
@@ -69,6 +71,7 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
   const [currentUserProfile, setCurrentUserProfile] = useState<UserProfile | null>(null);
   const [allCommunityUsers, setAllCommunityUsers] = useState<UserProfile[]>([]);
   const [showProfileModal, setShowProfileModal] = useState<boolean>(false);
+  const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
   const [isSigningIn, setIsSigningIn] = useState<boolean>(false);
 
   // Active reading modal
@@ -132,9 +135,9 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
       setPromoCodes(codes.filter((c) => c.active !== false));
     });
 
-    // 4. Subscribe to Projects for Archival Library
-    const unsubProj = subscribeProjects((projs) => {
-      setArchives(projs);
+    // 4. Subscribe to Published Broadsheets for Public Archival Library
+    const unsubProj = subscribeAllPublishedNewspapers((pubs) => {
+      setArchives(pubs);
     });
 
     // 5. Subscribe to Community Users for Public Leaderboard
@@ -498,13 +501,12 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
               </button>
             ) : (
               <button
-                onClick={handleGoogleSignIn}
-                disabled={isSigningIn}
-                className="px-3.5 py-1.5 text-xs font-bold rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-lg shadow-blue-600/20 transition-all flex items-center gap-1.5 disabled:opacity-50 transform hover:scale-105 active:scale-95"
-                title="Sign in with Google to maintain your account and leaderboard ranking"
+                onClick={() => setShowAuthModal(true)}
+                className="px-3.5 py-1.5 text-xs font-bold rounded-xl bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-500 hover:from-amber-400 hover:to-yellow-300 text-black shadow-lg shadow-amber-500/20 transition-all flex items-center gap-1.5 transform hover:scale-105 active:scale-95 cursor-pointer font-sans"
+                title="Sign in or enter your Discord username to react, vote, and enter challenges"
               >
                 <LogIn className="w-3.5 h-3.5" />
-                <span>{isSigningIn ? 'Connecting...' : 'Sign In with Google'}</span>
+                <span>Join / Sign In</span>
               </button>
             )}
 
@@ -747,7 +749,7 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
                 <NewspaperReactionBar
                   newspaperId={publishedDoc.id || 'live-broadsheet'}
                   currentUser={currentUserProfile}
-                  onRequireAuth={handleGoogleSignIn}
+                  onRequireAuth={() => setShowAuthModal(true)}
                 />
               </div>
             </div>
@@ -765,11 +767,17 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
               <NewspaperReactionBar
                 newspaperId="mjj-portal-general"
                 currentUser={currentUserProfile}
-                onRequireAuth={handleGoogleSignIn}
+                onRequireAuth={() => setShowAuthModal(true)}
               />
             </div>
           )}
         </section>
+
+        {/* Community Fan Photo Challenges & Contests Section */}
+        <CommunityChallengesSection
+          currentUser={currentUserProfile}
+          onRequireAuth={() => setShowAuthModal(true)}
+        />
 
         {/* Archival Library Section */}
         <section className="space-y-6">
@@ -837,7 +845,7 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
           <CommunityLeaderboardSection
             users={allCommunityUsers}
             currentUser={currentUserProfile}
-            onRequireAuth={handleGoogleSignIn}
+            onRequireAuth={() => setShowAuthModal(true)}
           />
         </section>
 
@@ -1056,6 +1064,17 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
         onClose={() => setShowProfileModal(false)}
         profile={currentUserProfile}
         onLogout={handleLogout}
+      />
+
+      {/* Foolproof Auth / Sign-In Modal */}
+      <AuthSignInModal
+        isOpen={showAuthModal}
+        onClose={() => setShowAuthModal(false)}
+        onSuccess={(profile) => {
+          setCurrentUserProfile(profile);
+          const dName = profile.discordUser || profile.discordUsername;
+          if (dName) setDiscordUser(dName);
+        }}
       />
     </div>
   );

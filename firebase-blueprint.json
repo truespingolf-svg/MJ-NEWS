@@ -108,6 +108,46 @@
         "status": { "type": "string" }
       },
       "required": ["id", "discordUser", "reason"]
+    },
+    "CommunityChallenge": {
+      "title": "Community Challenge",
+      "description": "Photo and media challenges posted by staff for community members to participate, vote, and win points",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "category": { "type": "string" },
+        "pointsReward": { "type": "number" },
+        "status": { "type": "string" },
+        "winnerEntryId": { "type": "string" },
+        "winnerDiscord": { "type": "string" },
+        "winnerUserId": { "type": "string" },
+        "winnerPointsAwarded": { "type": "number" },
+        "entriesCount": { "type": "number" },
+        "createdAt": { "type": "string" },
+        "closedAt": { "type": "string" }
+      },
+      "required": ["id", "title", "pointsReward", "status"]
+    },
+    "ChallengeEntry": {
+      "title": "Challenge Entry",
+      "description": "User submitted photo or response entry for a challenge",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "challengeId": { "type": "string" },
+        "userId": { "type": "string" },
+        "discordUser": { "type": "string" },
+        "userDisplayName": { "type": "string" },
+        "userPhotoURL": { "type": "string" },
+        "caption": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "votes": { "type": "number" },
+        "votedUserIds": { "type": "array" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "challengeId", "discordUser", "votes"]
     }
   },
   "firestore": {
@@ -138,6 +178,14 @@
     "/marketingApplications/{appId}": {
       "schema": { "$ref": "#/entities/MarketingApplication" },
       "description": "Marketing applications collection"
+    },
+    "/challenges/{challengeId}": {
+      "schema": { "$ref": "#/entities/CommunityChallenge" },
+      "description": "Community challenges collection"
+    },
+    "/challengeEntries/{entryId}": {
+      "schema": { "$ref": "#/entities/ChallengeEntry" },
+      "description": "Submissions for community challenges"
     }
   }
 }

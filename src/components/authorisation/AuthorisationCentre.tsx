@@ -19,6 +19,7 @@ import { StaffCodeManager } from './StaffCodeManager.tsx';
 import { StaffPublishingManager } from './StaffPublishingManager.tsx';
 import { StaffMarketingApplications } from './StaffMarketingApplications.tsx';
 import { StaffUserManager } from './StaffUserManager.tsx';
+import { StaffChallengeManager } from './StaffChallengeManager.tsx';
 import {
   ShieldCheck,
   Lock,
@@ -39,6 +40,7 @@ import {
   Briefcase,
   ChevronDown,
   Users,
+  Trophy,
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
@@ -51,7 +53,7 @@ interface AuthorisationCentreProps {
   brandingOrganizationName?: string;
 }
 
-type StaffTab = 'users' | 'documents' | 'applications' | 'codes' | 'publishing';
+type StaffTab = 'users' | 'challenges' | 'documents' | 'applications' | 'codes' | 'publishing';
 
 export const AuthorisationCentre: React.FC<AuthorisationCentreProps> = ({
   isUnlocked,
@@ -190,6 +192,7 @@ export const AuthorisationCentre: React.FC<AuthorisationCentreProps> = ({
               onChange={(e) => setActiveTab(e.target.value as StaffTab)}
               className="appearance-none bg-[#1a1a26] border border-amber-500/50 text-amber-300 text-xs font-bold rounded-xl px-3.5 py-1.5 sm:py-2 pr-9 focus:outline-none focus:border-amber-400 cursor-pointer shadow-md hover:bg-[#222234] transition-all min-h-[36px]"
             >
+              <option value="challenges">🏆 Community Challenges &amp; Fan Photo Contests</option>
               <option value="users">👥 Community Players, Accounts &amp; Ticket Grants</option>
               <option value="codes">🔑 Reward Codes, Points &amp; Redemptions</option>
               <option value="publishing">📻 Newspaper Publishing &amp; Broadcast Ticker</option>
@@ -215,6 +218,13 @@ export const AuthorisationCentre: React.FC<AuthorisationCentreProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Tab Content: Community Challenges & Contests */}
+      {activeTab === 'challenges' && (
+        <div className="flex-1 overflow-auto p-4 sm:p-8">
+          <StaffChallengeManager />
+        </div>
+      )}
 
       {/* Tab Content 0: Community Players, Ticket Grants & Points */}
       {activeTab === 'users' && (

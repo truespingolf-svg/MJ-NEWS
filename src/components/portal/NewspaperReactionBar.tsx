@@ -75,11 +75,11 @@ export const NewspaperReactionBar: React.FC<NewspaperReactionBarProps> = ({
         <div className="flex items-center gap-2">
           <span className="text-xs font-mono font-bold text-amber-400 uppercase tracking-widest flex items-center gap-1.5">
             <Sparkles className="w-3.5 h-3.5 text-amber-400 animate-spin-vinyl-reverse" />
-            <span>React &amp; Earn +1,000 Points:</span>
+            <span>{hasReactedAlready ? 'Your Broadsheet Reaction:' : 'React & Earn +1,000 Points:'}</span>
           </span>
           {hasReactedAlready && (
-            <span className="text-[10px] font-mono bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full">
-              +1,000 PTS CLAIMED ✓
+            <span className="text-[10px] font-mono font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+              <span>✓ Reacted (1 reaction limit)</span>
             </span>
           )}
         </div>
@@ -92,9 +92,13 @@ export const NewspaperReactionBar: React.FC<NewspaperReactionBarProps> = ({
               <button
                 key={emoji}
                 onClick={() => handleReact(emoji)}
-                disabled={isSubmitting}
-                className="px-3 py-1.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-xs font-mono border border-neutral-700 hover:border-amber-400 transition-all flex items-center gap-1.5 transform active:scale-95 shadow-sm"
-                title={`${label} - Click to react`}
+                disabled={isSubmitting || hasReactedAlready}
+                className={`px-3 py-1.5 rounded-xl text-xs font-mono border transition-all flex items-center gap-1.5 shadow-sm ${
+                  hasReactedAlready
+                    ? 'bg-neutral-900/60 text-neutral-400 border-neutral-800 cursor-not-allowed opacity-80'
+                    : 'bg-neutral-900 hover:bg-neutral-800 text-neutral-200 border-neutral-700 hover:border-amber-400 transform active:scale-95 cursor-pointer'
+                }`}
+                title={hasReactedAlready ? `Already reacted to this edition` : `${label} - Click to react (+1,000 Points)`}
               >
                 <span className="text-base">{emoji}</span>
                 <span className="font-bold text-neutral-300">{count}</span>

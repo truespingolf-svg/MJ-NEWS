@@ -16,6 +16,8 @@ import {
 import {
   subscribeProjects,
   subscribePublishedNewspaper,
+  subscribeAllPublishedNewspapers,
+  deletePublishedNewspaperFirestore,
   subscribeSubmissions,
   subscribeAnnouncements,
   acceptSubmissionFirestore,
@@ -52,6 +54,7 @@ export const StaffPublishingManager: React.FC<StaffPublishingManagerProps> = ({
   onRefreshData,
 }) => {
   const [publishedData, setPublishedData] = useState<PublishedNewspaperState | null>(null);
+  const [publishedList, setPublishedList] = useState<any[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [submissions, setSubmissions] = useState<any[]>([]);
   const [libraryProjects, setLibraryProjects] = useState<NewspaperProject[]>([]);
@@ -73,6 +76,10 @@ export const StaffPublishingManager: React.FC<StaffPublishingManagerProps> = ({
       setPublishedData(pub);
     });
 
+    const unsubPubList = subscribeAllPublishedNewspapers((list) => {
+      setPublishedList(list);
+    });
+
     const unsubSubs = subscribeSubmissions((subs) => {
       setSubmissions(subs);
     });
@@ -90,11 +97,20 @@ export const StaffPublishingManager: React.FC<StaffPublishingManagerProps> = ({
 
     return () => {
       unsubPub();
+      unsubPubList();
       unsubSubs();
       unsubAnn();
       unsubProj();
     };
   }, []);
+
+  const handleDeletePublishedArchiveDoc = async (id: string) => {
+    if (confirm('Are you sure you want to remove this broadsheet from the Public Published Archive?')) {
+      await deletePublishedNewspaperFirestore(id);
+      setStatusMsg('Published document deleted from Archive.');
+      setTimeout(() => setStatusMsg(''), 3000);
+    }
+  };
 
   const activeProjectsList = libraryProjects.length > 0 ? libraryProjects : propProjects || [];
 
@@ -443,6 +459,76 @@ export const StaffPublishingManager: React.FC<StaffPublishingManagerProps> = ({
                   >
                     <Trash2 className="w-4 h-4" />
                     <span>Reject</span>
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* PUBLISHED DOCUMENTS ARCHIVE MANAGER */}
+      <div className="bg-[#121218] border border-amber-500/30 rounded-2xl p-6 space-y-4 shadow-xl">
+        <div className="flex items-center justify-between pb-3 border-b border-[#252532]">
+          <div className="flex items-center gap-2">
+            <Archive className="w-5 h-5 text-amber-400" />
+            <h3 className="font-serif font-bold text-base text-white">
+              Public Archival Library Manager ({publishedList.length} Published Broadsheets)
+            </h3>
+          </div>
+          <span className="text-[11px] font-mono text-emerald-400 px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/30 font-bold">
+            FIRESTORE PUBLISHED ARCHIVE
+          </span>
+        </div>
+
+        <p className="text-xs text-neutral-400">
+          This archive displays all broadsheets that have been published through the Authorisation Centre. Staff can review and remove documents from the public portal's Archival Library at any time.
+        </p>
+
+        {publishedList.length === 0 ? (
+          <div className="bg-[#171720] border border-neutral-800 rounded-xl p-8 text-center text-xs text-neutral-500 font-mono">
+            No published broadsheets in the archive yet. Once you publish a newspaper above or accept a moderation submission, it will automatically appear in the Public Archival Library.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {publishedList.map((pubDoc) => (
+              <div
+                key={pubDoc.id}
+                className="p-4 bg-[#171722] border border-[#2e2e40] rounded-xl space-y-3 flex flex-col justify-between hover:border-amber-500/40 transition-colors"
+              >
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-serif font-bold text-sm text-white truncate">
+                      {pubDoc.title || pubDoc.projectTitle || pubDoc.name}
+                    </span>
+                    <span
+                      className={`text-[9px] font-mono font-bold px-2 py-0.5 rounded ${
+                        pubDoc.isActive
+                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                          : 'bg-neutral-800 text-neutral-400'
+                      }`}
+                    >
+                      {pubDoc.isActive ? 'LIVE ON AIR' : 'ARCHIVED'}
+                    </span>
+                  </div>
+
+                  <div className="text-[11px] text-neutral-400 font-mono space-y-0.5">
+                    <div>Published: {pubDoc.publishedAt ? new Date(pubDoc.publishedAt).toLocaleString() : 'Recently'}</div>
+                    <div>Pages: {pubDoc.pages?.length || 1} Broadsheet Pages</div>
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-[#252532] flex items-center justify-between gap-2">
+                  <span className="text-[10px] text-amber-400 font-mono">
+                    ID: {pubDoc.id?.slice(0, 14)}...
+                  </span>
+                  <button
+                    onClick={() => handleDeletePublishedArchiveDoc(pubDoc.id)}
+                    className="p-1.5 bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/30 font-bold text-xs rounded-lg transition-all flex items-center gap-1 cursor-pointer"
+                    title="Remove from Public Archival Library"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete Archive</span>
                   </button>
                 </div>
               </div>
