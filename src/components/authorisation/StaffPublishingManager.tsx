@@ -13,6 +13,18 @@ import {
   AlertCircle,
   Archive,
 } from 'lucide-react';
+import {
+  subscribeProjects,
+  subscribePublishedNewspaper,
+  subscribeSubmissions,
+  subscribeAnnouncements,
+  acceptSubmissionFirestore,
+  rejectSubmissionFirestore,
+  publishDirectFirestore,
+  unpublishFirestore,
+  addAnnouncementFirestore,
+  deleteAnnouncementFirestore,
+} from '../../services/firestoreStorage.ts';
 
 interface PublishedNewspaperState {
   projectId: string;
@@ -48,64 +60,43 @@ export const StaffPublishingManager: React.FC<StaffPublishingManagerProps> = ({
   const [newAnnouncementText, setNewAnnouncementText] = useState<string>('');
   const [statusMsg, setStatusMsg] = useState<string>('');
 
-  const fetchPublicData = async () => {
-    try {
-      const res = await fetch('/api/public/data');
-      if (res.ok) {
-        const data = await res.json();
-        setPublishedData(data.publishedNewspaper || null);
-        setAnnouncements(data.announcements || []);
-      }
-    } catch (err) {
-      console.error('Error fetching public publishing state:', err);
-    }
-  };
-
-  const fetchSubmissions = async () => {
-    try {
-      const res = await fetch('/api/staff/newspaper-submissions');
-      if (res.ok) {
-        const data = await res.json();
-        setSubmissions(data.submissions || []);
-      }
-    } catch (err) {
-      console.error('Error fetching submissions:', err);
-    }
-  };
-
-  const fetchAnnouncements = async () => {
-    try {
-      const res = await fetch('/api/staff/announcements');
-      if (res.ok) {
-        const data = await res.json();
-        setAnnouncements(data.announcements || []);
-      }
-    } catch (err) {
-      console.error('Error fetching announcements:', err);
-    }
-  };
-
   useEffect(() => {
     const loaded = loadAllProjects();
-    const activeList = loaded && loaded.length > 0 ? loaded : (propProjects || []);
+    const activeList = loaded && loaded.length > 0 ? loaded : propProjects || [];
     setLibraryProjects(activeList);
     if (activeList.length > 0 && !selectedProjectId) {
       setSelectedProjectId(activeList[0].id);
     }
 
-    fetchPublicData();
-    fetchSubmissions();
-    fetchAnnouncements();
-    // Real-time polling sync every 2 seconds
-    const interval = setInterval(() => {
-      fetchPublicData();
-      fetchSubmissions();
-      fetchAnnouncements();
-    }, 2000);
-    return () => clearInterval(interval);
+    // Connect to real-time Firestore listeners
+    const unsubPub = subscribePublishedNewspaper((pub) => {
+      setPublishedData(pub);
+    });
+
+    const unsubSubs = subscribeSubmissions((subs) => {
+      setSubmissions(subs);
+    });
+
+    const unsubAnn = subscribeAnnouncements((anns) => {
+      setAnnouncements(anns);
+    });
+
+    const unsubProj = subscribeProjects((projs) => {
+      setLibraryProjects(projs);
+      if (projs.length > 0 && !selectedProjectId) {
+        setSelectedProjectId(projs[0].id);
+      }
+    });
+
+    return () => {
+      unsubPub();
+      unsubSubs();
+      unsubAnn();
+      unsubProj();
+    };
   }, []);
 
-  const activeProjectsList = libraryProjects.length > 0 ? libraryProjects : (propProjects || []);
+  const activeProjectsList = libraryProjects.length > 0 ? libraryProjects : propProjects || [];
 
   const handlePublish = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -116,42 +107,41 @@ export const StaffPublishingManager: React.FC<StaffPublishingManagerProps> = ({
     }
 
     try {
-      const res = await fetch('/api/staff/publish', {
+      const ok = await publishDirectFirestore(targetProject, Number(durationMinutes) || 1440);
+      // Background fallback
+      fetch('/api/staff/publish', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           project: targetProject,
           durationMinutes: Number(durationMinutes) || 1440,
         }),
-      });
+      }).catch(() => {});
 
-      if (res.ok) {
+      if (ok) {
         setStatusMsg(`Successfully published "${targetProject.title}" for ${Math.round(Number(durationMinutes) / 60)} hours!`);
-        setTimeout(() => setStatusMsg(''), 3000);
-        fetchPublicData();
+        setTimeout(() => setStatusMsg(''), 3500);
         if (onRefreshData) onRefreshData();
       } else {
-        const data = await res.json().catch(() => ({}));
-        setStatusMsg(data.error || 'Failed to publish broadsheet. Please try again.');
+        setStatusMsg('Failed to publish broadsheet. Please check connection.');
       }
     } catch (err) {
       console.error('Error publishing project:', err);
-      setStatusMsg('Network error publishing project. Please check server.');
+      setStatusMsg('Error publishing project.');
     }
   };
 
   const handleAcceptSubmission = async (id: string) => {
     try {
-      const res = await fetch('/api/staff/accept-submission', {
+      const ok = await acceptSubmissionFirestore(id);
+      fetch('/api/staff/accept-submission', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setSubmissions(data.submissions || []);
-        fetchPublicData();
-        setStatusMsg('Newspaper submission accepted and published live instantly!');
+      }).catch(() => {});
+
+      if (ok) {
+        setStatusMsg('Newspaper submission accepted and published live instantly across all devices!');
         setTimeout(() => setStatusMsg(''), 3500);
         if (onRefreshData) onRefreshData();
       }
@@ -162,13 +152,10 @@ export const StaffPublishingManager: React.FC<StaffPublishingManagerProps> = ({
 
   const handleRejectSubmission = async (id: string) => {
     try {
-      const res = await fetch(`/api/staff/submission/${id}`, { method: 'DELETE' });
-      if (res.ok) {
-        const data = await res.json();
-        setSubmissions(data.submissions || []);
-        setStatusMsg('Newspaper submission rejected.');
-        setTimeout(() => setStatusMsg(''), 3500);
-      }
+      await rejectSubmissionFirestore(id);
+      fetch(`/api/staff/submission/${id}`, { method: 'DELETE' }).catch(() => {});
+      setStatusMsg('Newspaper submission rejected.');
+      setTimeout(() => setStatusMsg(''), 3500);
     } catch (err) {
       console.error('Error rejecting submission:', err);
     }
@@ -176,13 +163,11 @@ export const StaffPublishingManager: React.FC<StaffPublishingManagerProps> = ({
 
   const handleUnpublish = async () => {
     try {
-      const res = await fetch('/api/staff/unpublish', { method: 'POST' });
-      if (res.ok) {
-        setStatusMsg('Active publication ended and archived to library.');
-        setTimeout(() => setStatusMsg(''), 3000);
-        fetchPublicData();
-        if (onRefreshData) onRefreshData();
-      }
+      await unpublishFirestore();
+      fetch('/api/staff/unpublish', { method: 'POST' }).catch(() => {});
+      setStatusMsg('Active publication ended and archived.');
+      setTimeout(() => setStatusMsg(''), 3000);
+      if (onRefreshData) onRefreshData();
     } catch (err) {
       console.error('Error unpublishing:', err);
     }
@@ -193,16 +178,17 @@ export const StaffPublishingManager: React.FC<StaffPublishingManagerProps> = ({
     if (!newAnnouncementText.trim()) return;
 
     try {
-      const res = await fetch('/api/staff/announcements', {
+      const ok = await addAnnouncementFirestore(newAnnouncementText.trim());
+      fetch('/api/staff/announcements', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: newAnnouncementText.trim() }),
-      });
+      }).catch(() => {});
 
-      if (res.ok) {
+      if (ok) {
         setNewAnnouncementText('');
-        fetchPublicData();
-        fetchAnnouncements();
+        setStatusMsg('Broadcast ticker announcement posted live!');
+        setTimeout(() => setStatusMsg(''), 3000);
       }
     } catch (err) {
       console.error('Error adding announcement:', err);
@@ -211,11 +197,8 @@ export const StaffPublishingManager: React.FC<StaffPublishingManagerProps> = ({
 
   const handleDeleteAnnouncement = async (id: string) => {
     try {
-      const res = await fetch(`/api/staff/announcements/${id}`, { method: 'DELETE' });
-      if (res.ok) {
-        fetchPublicData();
-        fetchAnnouncements();
-      }
+      await deleteAnnouncementFirestore(id);
+      fetch(`/api/staff/announcements/${id}`, { method: 'DELETE' }).catch(() => {});
     } catch (err) {
       console.error('Error deleting announcement:', err);
     }
@@ -228,13 +211,13 @@ export const StaffPublishingManager: React.FC<StaffPublishingManagerProps> = ({
         <div>
           <div className="flex items-center gap-2 text-xs font-mono text-amber-400 uppercase tracking-widest mb-1">
             <Radio className="w-4 h-4" />
-            <span>MJJ RECORDS BROADCAST &amp; PUBLISHING CONTROL</span>
+            <span>FIREBASE FIRESTORE REAL-TIME PUBLISHING CONTROL</span>
           </div>
           <h2 className="font-serif text-2xl font-bold text-white tracking-tight">
             Live Newspaper Publishing &amp; Timer Schedule
           </h2>
           <p className="text-xs text-neutral-400 max-w-xl mt-1 leading-relaxed">
-            Publish broadsheet newspapers to the main MJJ RECORDS public portal, set active publication duration timers, and manage scrolling announcement ticker banners.
+            Publish broadsheet newspapers to the main MJJ RECORDS public portal, review pending moderation submissions, and manage scrolling announcement ticker banners synced across all devices.
           </p>
         </div>
       </div>
@@ -255,7 +238,7 @@ export const StaffPublishingManager: React.FC<StaffPublishingManagerProps> = ({
               <select
                 value={selectedProjectId}
                 onChange={(e) => setSelectedProjectId(e.target.value)}
-                className="w-full bg-[#181822] border border-[#2e2e3e] rounded-xl p-3 text-xs font-bold text-amber-400 focus:outline-none focus:border-amber-400"
+                className="w-full bg-[#181822] border border-[#2e2e3e] rounded-xl p-3 text-xs font-bold text-amber-400 focus:outline-none focus:border-amber-400 cursor-pointer"
               >
                 {activeProjectsList.map((p) => (
                   <option key={p.id} value={p.id}>
@@ -272,7 +255,7 @@ export const StaffPublishingManager: React.FC<StaffPublishingManagerProps> = ({
               <select
                 value={durationMinutes}
                 onChange={(e) => setDurationMinutes(Number(e.target.value))}
-                className="w-full bg-[#181822] border border-[#2e2e3e] rounded-xl p-3 text-xs text-white focus:outline-none focus:border-amber-400"
+                className="w-full bg-[#181822] border border-[#2e2e3e] rounded-xl p-3 text-xs text-white focus:outline-none focus:border-amber-400 cursor-pointer"
               >
                 <option value={60}>1 Hour</option>
                 <option value={360}>6 Hours</option>
@@ -292,7 +275,7 @@ export const StaffPublishingManager: React.FC<StaffPublishingManagerProps> = ({
 
             <button
               type="submit"
-              className="w-full py-3 bg-amber-400 hover:bg-amber-300 text-black font-bold text-xs rounded-xl shadow-lg transition-all flex items-center justify-center gap-2"
+              className="w-full py-3 bg-amber-400 hover:bg-amber-300 text-black font-bold text-xs rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer"
             >
               <Send className="w-4 h-4 stroke-[2.5]" />
               <span>PUBLISH TO PUBLIC PORTAL</span>
@@ -328,7 +311,7 @@ export const StaffPublishingManager: React.FC<StaffPublishingManagerProps> = ({
                   </div>
                   <button
                     onClick={handleUnpublish}
-                    className="w-full mt-2 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1.5"
+                    className="w-full mt-2 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
                   >
                     <Archive className="w-3.5 h-3.5" />
                     <span>End Publication &amp; Move to Archive Library</span>
@@ -362,15 +345,15 @@ export const StaffPublishingManager: React.FC<StaffPublishingManagerProps> = ({
                 value={newAnnouncementText}
                 onChange={(e) => setNewAnnouncementText(e.target.value)}
                 placeholder="Enter moving ticker message text..."
-                className="w-full bg-[#181822] border border-[#2e2e3e] rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-amber-400"
+                className="w-full bg-[#181822] border border-[#2e2e3e] rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-amber-400 font-mono"
               />
             </div>
             <button
               type="submit"
-              className="w-full py-2.5 bg-[#1e1e2b] hover:bg-[#28283a] text-amber-400 border border-amber-500/40 font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-1.5"
+              className="w-full py-2.5 bg-amber-400 hover:bg-amber-300 text-black font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
             >
               <Plus className="w-4 h-4" />
-              <span>Add Broadcast Ticker Announcement</span>
+              <span>POST ANNOUNCEMENT LIVE TO MARQUEE</span>
             </button>
           </form>
 
@@ -380,7 +363,7 @@ export const StaffPublishingManager: React.FC<StaffPublishingManagerProps> = ({
               ACTIVE TICKER ANNOUNCEMENTS ({announcements.length}):
             </span>
             {announcements.length === 0 ? (
-              <p className="text-xs text-neutral-500 font-mono italic">No announcements added.</p>
+              <p className="text-xs text-neutral-500 font-mono italic">No announcements added yet. Type a message above and click Post Announcement Live.</p>
             ) : (
               <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
                 {announcements.map((ann) => (
@@ -393,7 +376,7 @@ export const StaffPublishingManager: React.FC<StaffPublishingManagerProps> = ({
                     </p>
                     <button
                       onClick={() => handleDeleteAnnouncement(ann.id)}
-                      className="p-1.5 text-neutral-400 hover:text-red-400 hover:bg-neutral-800 rounded shrink-0"
+                      className="p-1.5 text-neutral-400 hover:text-red-400 hover:bg-neutral-800 rounded shrink-0 cursor-pointer"
                       title="Delete Announcement"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
@@ -416,13 +399,13 @@ export const StaffPublishingManager: React.FC<StaffPublishingManagerProps> = ({
             </h3>
           </div>
           <span className="text-[11px] font-mono text-amber-400 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30">
-            REVIEW &amp; APPROVAL QUEUE
+            FIREBASE REAL-TIME QUEUE
           </span>
         </div>
 
         {submissions.length === 0 ? (
           <p className="text-xs text-neutral-500 font-mono italic">
-            No newspaper submissions awaiting moderation. When editors submit broadsheets from Newspaper Studio, they will appear here for review and instant publication upon acceptance.
+            No newspaper submissions awaiting moderation. When editors submit broadsheets from Newspaper Studio, they will appear here in real-time for review and instant publication upon acceptance.
           </p>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

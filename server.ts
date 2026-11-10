@@ -3,9 +3,19 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
+import { GoogleGenAI } from '@google/genai';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+const ai = new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY,
+  httpOptions: {
+    headers: {
+      'User-Agent': 'aistudio-build',
+    },
+  },
+});
 
 const DATA_DIR = path.join(__dirname, 'data');
 const DB_FILE = path.join(DATA_DIR, 'mjj_records_db.json');
@@ -417,6 +427,122 @@ async function startServer() {
     }
     saveDb(dbData);
     res.json({ success: true, settings: dbData.settings });
+  });
+
+  // 10. Staff AI Newspaper Copilot with Google Search Grounding (gemini-3.8-flash)
+  app.post('/api/staff/ai-assistant', async (req, res) => {
+    try {
+      const { message, history } = req.body;
+      if (!message || !message.trim()) {
+        return res.status(400).json({ error: 'Message is required.' });
+      }
+
+      const systemPrompt = `You are the official MJJ Records AI Newspaper Research & Broadsheet Copilot.
+You specialize in Michael Jackson history, Jackson 5, Off the Wall, Thriller, Bad, Dangerous, HIStory, Invincible, Motown 25, world tours, discography, philanthropy, awards, and historical broadsheet music journalism.
+You have access to Google Search grounding to verify dates, facts, quotes, and historical details accurately.
+
+When the staff member asks you to create or research a newspaper, you must:
+1. Research the requested topic, historical event, or custom specification using Google Search grounding.
+2. Provide a knowledgeable, exciting journalistic editorial explanation of what you researched, including historical context, quotes, and citations.
+3. Generate a complete, publishable broadsheet newspaper project structure in strict JSON format inside a single \`\`\`json ... \`\`\` code block at the end of your response.
+
+The JSON MUST conform to this exact shape:
+{
+  "projectTitle": "Headline Title for Newspaper Project",
+  "subtitle": "Informative Subtitle for Newspaper",
+  "editionName": "THE MJJ DAILY PRESS",
+  "dateText": "HISTORIC DATE (e.g. MARCH 25, 1983)",
+  "issueNumber": "ISSUE NO. 88",
+  "priceText": "PRICE 25 CENTS",
+  "pages": [
+    {
+      "layoutId": "layout-top-hero",
+      "sectionTitle": "FRONT PAGE SPECIAL REPORT",
+      "leadHeadline": "PUNCHY FRONT PAGE HEADLINE",
+      "leadKicker": "HISTORIC RECORD • SPECIAL DISPATCH",
+      "leadSubhead": "Compelling subhead summarizing the story",
+      "leadBody": "In-depth article text (2-4 paragraphs with rich journalistic detail, historical facts, and quotes)...",
+      "leadByline": "BY MJJ PRESS BUREAU",
+      "secondaryHeadline": "Secondary Article Headline",
+      "secondaryBody": "Article text with facts...",
+      "secondaryByline": "BY SPECIAL CORRESPONDENT",
+      "tertiaryHeadline": "Third Column Dispatch",
+      "tertiaryBody": "Article text with background...",
+      "quote": "Memorable quote from Michael Jackson or key figure",
+      "image1Caption": "Caption describing what photo should appear in Slot 1",
+      "image2Caption": "Caption for Slot 2",
+      "image3Caption": "Caption for Slot 3"
+    }
+  ]
+}
+
+Available layout IDs for pages:
+- 'front-cover' (Standard front page masthead with hero photograph)
+- 'layout-top-hero' (Hero banner top with 3 columns below)
+- 'layout-vertical-trio' (3 vertical balanced columns)
+- 'layout-left-split' (Feature spread with left side image and right narrative)
+- 'layout-center-feature' (Center stage editorial with dual bookend columns)
+- 'layout-horizontal-triptych' (3 horizontal triptych segments)
+- 'layout-editorial-asymmetric' (Modern asymmetrical broadsheet layout)
+- 'layout-headline-spread' (Gigantic bold banner headline spread)
+
+Always be authentic, respectful, factually accurate, and enthusiastic about the King of Pop's artistry and legacy.`;
+
+      const contents: any[] = [];
+      if (Array.isArray(history) && history.length > 0) {
+        for (const h of history) {
+          if (h.role && h.text) {
+            contents.push({
+              role: h.role === 'user' ? 'user' : 'model',
+              parts: [{ text: h.text }],
+            });
+          }
+        }
+      }
+
+      contents.push({
+        role: 'user',
+        parts: [{ text: `${systemPrompt}\n\nStaff Request: ${message.trim()}` }],
+      });
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.8-flash',
+        contents,
+        config: {
+          tools: [{ googleSearch: {} }],
+        },
+      });
+
+      const text = response.text || '';
+      const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+      const webSources = groundingChunks
+        .map((chunk: any) => chunk.web)
+        .filter((w: any) => w && w.uri && w.title);
+
+      // Extract JSON block if present
+      let generatedProjectData: any = null;
+      const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/);
+      if (jsonMatch) {
+        try {
+          generatedProjectData = JSON.parse(jsonMatch[1]);
+        } catch (parseErr) {
+          console.warn('JSON parse warning from AI response:', parseErr);
+        }
+      }
+
+      return res.json({
+        reply: text.replace(/```json[\s\S]*?```/, '').trim(),
+        fullText: text,
+        projectData: generatedProjectData,
+        sources: webSources,
+      });
+    } catch (err: any) {
+      console.error('AI assistant error:', err);
+      return res.status(500).json({
+        error: 'Failed to process AI newspaper request.',
+        details: err?.message || String(err),
+      });
+    }
   });
 
   if (process.env.NODE_ENV !== 'production') {

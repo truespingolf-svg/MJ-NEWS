@@ -20,6 +20,7 @@ interface TopNavigationProps {
   onSelectView: (view: MainAppView) => void;
   isAuthorisationUnlocked: boolean;
   onOpenBrandingKit: () => void;
+  onOpenAiModal?: () => void;
   saveStatus?: 'saved' | 'saving' | 'unsaved';
   onReturnToPublicPortal: () => void;
   textureEnabled: boolean;
@@ -31,6 +32,7 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
   onSelectView,
   isAuthorisationUnlocked,
   onOpenBrandingKit,
+  onOpenAiModal,
   saveStatus,
   onReturnToPublicPortal,
   textureEnabled,
@@ -63,8 +65,8 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
         </div>
       </div>
 
-      {/* Zone 2: Single Dropdown Selector for Staff Studio Modules */}
-      <div className="flex items-center gap-2 shrink-0">
+      {/* Zone 2: Single Dropdown Selector for Staff Studio Modules + AI Copilot */}
+      <div className="flex items-center gap-2.5 shrink-0">
         <span className="text-xs font-semibold text-neutral-400 hidden lg:inline">
           Studio View:
         </span>
@@ -81,6 +83,18 @@ export const TopNavigation: React.FC<TopNavigationProps> = ({
           </select>
           <ChevronDown className="w-3.5 h-3.5 text-amber-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
         </div>
+
+        {/* AI Broadsheet Assistant Trigger */}
+        {onOpenAiModal && (
+          <button
+            onClick={onOpenAiModal}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-black rounded-xl bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-500 hover:from-amber-400 hover:to-yellow-300 text-black shadow-lg shadow-amber-500/25 transition-all transform hover:scale-105 active:scale-95 cursor-pointer min-h-[38px]"
+            title="Ask AI to research facts with Google Search and generate a custom broadsheet project"
+          >
+            <Sparkles className="w-4 h-4 stroke-[2.5]" />
+            <span className="tracking-wide">AI Broadsheet Copilot</span>
+          </button>
+        )}
       </div>
 
       {/* Zone 3: Global Texture Toggle + Branding Kit */}

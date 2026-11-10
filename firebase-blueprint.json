@@ -43,6 +43,45 @@
       },
       "required": ["id", "code"]
     },
+    "GeneralPointsCode": {
+      "title": "General Points Reward Code",
+      "description": "Configurable points codes for community players with universal or limited claims",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "points": { "type": "number" },
+        "isUniversal": { "type": "boolean" },
+        "maxRedemptions": { "type": "integer" },
+        "redemptionsCount": { "type": "integer" },
+        "claimedUserIds": { "type": "array" },
+        "active": { "type": "boolean" },
+        "customNote": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "code", "points"]
+    },
+    "UserProfile": {
+      "title": "Community Player Profile",
+      "description": "Google authenticated player profile with points, votes, and discord username",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "discordUser": { "type": "string" },
+        "points": { "type": "number" },
+        "votes": { "type": "number" },
+        "photoURL": { "type": "string" },
+        "reactedNewspaperIds": { "type": "array" },
+        "votedUserIds": { "type": "array" },
+        "tickets": { "type": "array" },
+        "assignedCodes": { "type": "array" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["uid", "points", "votes"]
+    },
     "Redemption": {
       "title": "User Redemption Log",
       "description": "Audited discord code redemptions",
@@ -83,6 +122,14 @@
     "/promoCodes/{codeId}": {
       "schema": { "$ref": "#/entities/PromoCode" },
       "description": "Promo codes collection"
+    },
+    "/generalCodes/{codeId}": {
+      "schema": { "$ref": "#/entities/GeneralPointsCode" },
+      "description": "General points codes collection"
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "User profiles collection"
     },
     "/redemptions/{redemptionId}": {
       "schema": { "$ref": "#/entities/Redemption" },

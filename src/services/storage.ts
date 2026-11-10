@@ -1,83 +1,76 @@
 import { NewspaperProject } from '../types/newspaper.ts';
 import {
-  createNewProject,
-  createInteriorPage,
-  updateImageElement,
-  updateTextElement,
-} from '../utils/newspaperLogic.ts';
+  createStarterProject,
+  subscribeProjects,
+  saveProjectFirestore,
+  deleteProjectFirestore,
+  duplicateProjectFirestore,
+} from './firestoreStorage.ts';
 
 const STORAGE_KEY = 'mj_newspaper_studio_projects_v1';
 const ACTIVE_PROJECT_KEY = 'mj_newspaper_studio_active_id_v1';
 
-/**
- * Creates an authentic starter newspaper project with clean editable placeholders.
- */
-function createStarterProject(): NewspaperProject {
-  const project = createNewProject('The King of Pop Chronicle');
-  project.subtitle = 'Commemorative Newspaper Edition';
+let cachedProjects: NewspaperProject[] = [];
 
-  // Front Cover with clean placeholders (no AI presets)
-  let cover = project.pages[0];
-
-  // Add Page 2: Top Hero layout
-  const page2 = createInteriorPage('layout-top-hero', 2);
-  page2.pageHeader.sectionTitle = 'HISTORIC ARCHIVES • PAGE 2';
-
-  // Add Page 3: Panoramic Triptych layout
-  const page3 = createInteriorPage('layout-horizontal-triptych', 3);
-  page3.pageHeader.sectionTitle = 'HISTORIC ARCHIVES • PAGE 3';
-
-  project.pages = [cover, page2, page3];
-  return project;
-}
-
-/**
- * Low-level reader for localStorage projects without recursion.
- */
-function readProjectsFromStorage(): NewspaperProject[] | null {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed) || parsed.length === 0) return null;
-    return parsed;
-  } catch {
-    return null;
+// Initialize memory cache from localStorage if available
+try {
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (raw) {
+    cachedProjects = JSON.parse(raw);
   }
+} catch {
+  // ignore
 }
 
+// Start real-time Firestore subscriber to keep cachedProjects in sync across all devices
+subscribeProjects((projects) => {
+  cachedProjects = projects;
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(projects));
+  } catch {
+    // ignore
+  }
+});
+
 /**
- * Loads all saved projects from storage.
+ * Loads all saved projects from real-time cache / storage.
  */
 export function loadAllProjects(): NewspaperProject[] {
-  const existing = readProjectsFromStorage();
-  if (existing) {
-    return existing;
+  if (cachedProjects && cachedProjects.length > 0) {
+    return cachedProjects;
+  }
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        cachedProjects = parsed;
+        return parsed;
+      }
+    }
+  } catch {
+    // ignore
   }
   const starter = createStarterProject();
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify([starter]));
-    localStorage.setItem(ACTIVE_PROJECT_KEY, starter.id);
-  } catch (e) {
-    console.error('Storage write error:', e);
-  }
+  cachedProjects = [starter];
   return [starter];
 }
 
 /**
- * Saves or updates a project.
+ * Saves or updates a project to Firebase Firestore and local cache.
  */
 export function saveProject(project: NewspaperProject): boolean {
   try {
-    const existing = readProjectsFromStorage() || [];
-    const remaining = existing.filter((p) => p.id !== project.id);
-    const updatedProject = {
+    const remaining = cachedProjects.filter((p) => p.id !== project.id);
+    const updated = {
       ...project,
       updatedAt: new Date().toISOString(),
     };
-    const updatedList = [updatedProject, ...remaining];
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedList));
+    cachedProjects = [updated, ...remaining];
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(cachedProjects));
     localStorage.setItem(ACTIVE_PROJECT_KEY, project.id);
+    // Persist asynchronously to Firebase Firestore
+    saveProjectFirestore(updated).catch((err) => console.error('Firestore save project error:', err));
     return true;
   } catch (err) {
     console.error('Failed to save project:', err);
@@ -114,7 +107,7 @@ export function setActiveProjectId(id: string) {
 }
 
 /**
- * Duplicates an entire project on the dashboard.
+ * Duplicates an entire project on the dashboard and syncs to Firestore.
  */
 export function duplicateProject(projectId: string): NewspaperProject | null {
   const original = getProjectById(projectId);
@@ -138,22 +131,30 @@ export function duplicateProject(projectId: string): NewspaperProject | null {
 }
 
 /**
- * Deletes a project by ID.
+ * Deletes a project by ID and syncs to Firestore.
  */
 export function deleteProject(projectId: string): NewspaperProject[] {
-  const projects = loadAllProjects().filter((p) => p.id !== projectId);
-  if (projects.length === 0) {
+  cachedProjects = cachedProjects.filter((p) => p.id !== projectId);
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(cachedProjects));
+  } catch {
+    // ignore
+  }
+  deleteProjectFirestore(projectId).catch((err) => console.error('Firestore delete project error:', err));
+
+  if (cachedProjects.length === 0) {
     const starter = createStarterProject();
-    localStorage.setItem(STORAGE_KEY, JSON.stringify([starter]));
+    cachedProjects = [starter];
+    saveProject(starter);
     setActiveProjectId(starter.id);
     return [starter];
   }
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(projects));
+
   const activeId = localStorage.getItem(ACTIVE_PROJECT_KEY);
   if (activeId === projectId) {
-    setActiveProjectId(projects[0].id);
+    setActiveProjectId(cachedProjects[0].id);
   }
-  return projects;
+  return cachedProjects;
 }
 
 /**

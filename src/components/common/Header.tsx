@@ -30,6 +30,7 @@ interface HeaderProps {
   pageCount: number;
   onOpenPublishModal?: () => void;
   onOpenFlipbookPreview?: () => void;
+  onOpenAiModal?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -48,6 +49,7 @@ export const Header: React.FC<HeaderProps> = ({
   pageCount,
   onOpenPublishModal,
   onOpenFlipbookPreview,
+  onOpenAiModal,
 }) => {
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [tempTitle, setTempTitle] = useState(projectTitle);
@@ -171,6 +173,18 @@ export const Header: React.FC<HeaderProps> = ({
             Fit
           </button>
         </div>
+
+        {/* AI Broadsheet Copilot Button */}
+        {onOpenAiModal && (
+          <button
+            onClick={onOpenAiModal}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg border border-amber-500/40 bg-neutral-900 text-amber-300 hover:bg-neutral-800 transition-colors shadow-sm whitespace-nowrap min-h-[36px]"
+            title="Ask AI Copilot to research facts with Google Search and generate broadsheets"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+            <span>AI Copilot</span>
+          </button>
+        )}
 
         {/* 3D Flipbook Preview Button */}
         {onOpenFlipbookPreview && (

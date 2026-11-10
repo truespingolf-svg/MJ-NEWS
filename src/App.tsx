@@ -47,6 +47,7 @@ import {
 } from './services/authorisationStorage.ts';
 import { loadOrganizationBranding } from './services/brandingStorage.ts';
 import { OrganizationBranding } from './types/branding.ts';
+import { StaffAiNewspaperModal } from './components/editor/StaffAiNewspaperModal.tsx';
 
 type AppMode = 'public' | 'staff';
 
@@ -56,6 +57,7 @@ export default function App() {
   const [isStaffAuthenticated, setIsStaffAuthenticated] = useState<boolean>(false);
   const [showPasscodeModal, setShowPasscodeModal] = useState<boolean>(false);
   const [textureEnabled, setTextureEnabled] = useState<boolean>(true);
+  const [isAiModalOpen, setIsAiModalOpen] = useState<boolean>(false);
 
   // Top-level staff view
   const [mainView, setMainView] = useState<MainAppView>('newspaper');
@@ -418,6 +420,7 @@ export default function App() {
             }}
             isAuthorisationUnlocked={isAuthorisationUnlocked}
             onOpenBrandingKit={() => setIsBrandingModalOpen(true)}
+            onOpenAiModal={() => setIsAiModalOpen(true)}
             onReturnToPublicPortal={() => {
               setAppMode('public');
               setIsStaffAuthenticated(false);
@@ -529,6 +532,7 @@ export default function App() {
                       pageCount={currentProject.pages.length}
                       onOpenPublishModal={() => setIsPublishModalOpen(true)}
                       onOpenFlipbookPreview={() => setActiveFlipbookDoc(currentProject)}
+                      onOpenAiModal={() => setIsAiModalOpen(true)}
                     />
 
                     {/* 3-Section Newspaper Studio Workspace */}
@@ -691,11 +695,24 @@ export default function App() {
         />
       )}
 
+      {/* Staff AI Broadsheet Newspaper Copilot Modal */}
+      <StaffAiNewspaperModal
+        isOpen={isAiModalOpen}
+        onClose={() => setIsAiModalOpen(false)}
+        onProjectCreated={(newProject) => {
+          setProjects((prev) => [newProject, ...prev]);
+          setCurrentProject(newProject);
+          setActivePageIndex(0);
+          setMainView('newspaper');
+          setView('editor');
+        }}
+      />
+
       {/* Offscreen container holding all sequential newspaper pages for straight PDF export & print */}
       {currentProject && (
         <div
           ref={offscreenPagesRef}
-          className="fixed -left-[9999px] top-0 pointer-events-none opacity-100 z-[-99]"
+          className="fixed top-0 left-0 w-[800px] pointer-events-none opacity-[0.001] -z-50 overflow-hidden"
           aria-hidden="true"
         >
           {currentProject.pages.map((p) => (

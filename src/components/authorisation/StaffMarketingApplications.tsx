@@ -13,6 +13,12 @@ import {
   Sparkles,
 } from 'lucide-react';
 
+import {
+  subscribeMarketingApplications,
+  updateApplicationStatusFirestore,
+  deleteApplicationFirestore,
+} from '../../services/firestoreStorage.ts';
+
 export interface MarketingApplication {
   id: string;
   discordUser: string;
@@ -28,37 +34,24 @@ export const StaffMarketingApplications: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [filterStatus, setFilterStatus] = useState<string>('all');
 
-  const fetchApplications = async () => {
-    try {
-      const res = await fetch('/api/staff/applications');
-      if (res.ok) {
-        const data = await res.json();
-        setApplications(data.applications || []);
-      }
-    } catch (err) {
-      console.error('Error fetching marketing applications:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   useEffect(() => {
-    fetchApplications();
-    // Real-time sync every 2 seconds across connected clients
-    const interval = setInterval(fetchApplications, 2000);
-    return () => clearInterval(interval);
+    // Real-time Firestore listener
+    const unsubscribe = subscribeMarketingApplications((apps) => {
+      setApplications(apps as MarketingApplication[]);
+      setIsLoading(false);
+    });
+
+    return () => unsubscribe();
   }, []);
 
   const handleUpdateStatus = async (id: string, newStatus: MarketingApplication['status']) => {
     try {
-      const res = await fetch('/api/staff/update-application-status', {
+      await updateApplicationStatusFirestore(id, newStatus);
+      fetch('/api/staff/update-application-status', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, status: newStatus }),
-      });
-      if (res.ok) {
-        fetchApplications();
-      }
+      }).catch(() => {});
     } catch (err) {
       console.error('Error updating status:', err);
     }
@@ -66,10 +59,8 @@ export const StaffMarketingApplications: React.FC = () => {
 
   const handleDelete = async (id: string) => {
     try {
-      const res = await fetch(`/api/staff/application/${id}`, { method: 'DELETE' });
-      if (res.ok) {
-        fetchApplications();
-      }
+      await deleteApplicationFirestore(id);
+      fetch(`/api/staff/application/${id}`, { method: 'DELETE' }).catch(() => {});
     } catch (err) {
       console.error('Error deleting application:', err);
     }
@@ -103,7 +94,10 @@ export const StaffMarketingApplications: React.FC = () => {
         </div>
 
         <button
-          onClick={fetchApplications}
+          onClick={() => {
+            setIsLoading(true);
+            setTimeout(() => setIsLoading(false), 500);
+          }}
           className="flex items-center gap-2 px-4 py-2 bg-[#1b1b26] hover:bg-[#252534] text-neutral-200 border border-[#333344] rounded-xl text-xs font-medium transition-colors"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin text-amber-400' : ''}`} />

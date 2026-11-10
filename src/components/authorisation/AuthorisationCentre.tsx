@@ -18,6 +18,7 @@ import { AuthorisationPasscodeGate } from './AuthorisationPasscodeGate.tsx';
 import { StaffCodeManager } from './StaffCodeManager.tsx';
 import { StaffPublishingManager } from './StaffPublishingManager.tsx';
 import { StaffMarketingApplications } from './StaffMarketingApplications.tsx';
+import { StaffUserManager } from './StaffUserManager.tsx';
 import {
   ShieldCheck,
   Lock,
@@ -37,6 +38,7 @@ import {
   Radio,
   Briefcase,
   ChevronDown,
+  Users,
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
@@ -49,7 +51,7 @@ interface AuthorisationCentreProps {
   brandingOrganizationName?: string;
 }
 
-type StaffTab = 'documents' | 'applications' | 'codes' | 'publishing';
+type StaffTab = 'users' | 'documents' | 'applications' | 'codes' | 'publishing';
 
 export const AuthorisationCentre: React.FC<AuthorisationCentreProps> = ({
   isUnlocked,
@@ -188,10 +190,11 @@ export const AuthorisationCentre: React.FC<AuthorisationCentreProps> = ({
               onChange={(e) => setActiveTab(e.target.value as StaffTab)}
               className="appearance-none bg-[#1a1a26] border border-amber-500/50 text-amber-300 text-xs font-bold rounded-xl px-3.5 py-1.5 sm:py-2 pr-9 focus:outline-none focus:border-amber-400 cursor-pointer shadow-md hover:bg-[#222234] transition-all min-h-[36px]"
             >
-              <option value="documents">📑 Personnel &amp; Official Legal Documents</option>
-              <option value="applications">💼 Marketing Recruitment Applications</option>
-              <option value="codes">🔑 Secret Reward Codes &amp; Redemptions</option>
+              <option value="users">👥 Community Players, Accounts &amp; Ticket Grants</option>
+              <option value="codes">🔑 Reward Codes, Points &amp; Redemptions</option>
               <option value="publishing">📻 Newspaper Publishing &amp; Broadcast Ticker</option>
+              <option value="applications">💼 Marketing Recruitment Applications</option>
+              <option value="documents">📑 Personnel &amp; Official Legal Documents</option>
             </select>
             <ChevronDown className="w-4 h-4 text-amber-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
           </div>
@@ -212,6 +215,13 @@ export const AuthorisationCentre: React.FC<AuthorisationCentreProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Tab Content 0: Community Players, Ticket Grants & Points */}
+      {activeTab === 'users' && (
+        <div className="flex-1 overflow-auto">
+          <StaffUserManager />
+        </div>
+      )}
 
       {/* Tab Content 1: Marketing Recruitment Applications */}
       {activeTab === 'applications' && (

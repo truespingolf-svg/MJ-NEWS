@@ -22,6 +22,26 @@ import { PublicMarqueeBanner } from '../common/PublicMarqueeBanner';
 import { FlipbookReader } from '../canvas/FlipbookReader';
 import { NewspaperProject } from '../../types/newspaper.ts';
 
+import { onAuthStateChanged } from 'firebase/auth';
+import { auth, loginWithGoogle, logoutUser } from '../../firebase.ts';
+import {
+  subscribePublishedNewspaper,
+  subscribeAnnouncements,
+  subscribePromoCodes,
+  subscribeProjects,
+  redeemCodeFirestore,
+  submitApplicationFirestore,
+  UserProfile,
+  subscribeCurrentUser,
+  subscribeUsers,
+  syncUserProfile,
+  redeemGeneralPointsCode,
+} from '../../services/firestoreStorage.ts';
+import { CommunityLeaderboardSection } from './CommunityLeaderboardSection.tsx';
+import { UserProfileModal } from './UserProfileModal.tsx';
+import { NewspaperReactionBar } from './NewspaperReactionBar.tsx';
+import { LogIn, LogOut, User as UserIcon } from 'lucide-react';
+
 interface Announcement {
   id: string;
   text: string;
@@ -44,6 +64,12 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [archives, setArchives] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
+
+  // Authenticated Community User & Leaderboard state
+  const [currentUserProfile, setCurrentUserProfile] = useState<UserProfile | null>(null);
+  const [allCommunityUsers, setAllCommunityUsers] = useState<UserProfile[]>([]);
+  const [showProfileModal, setShowProfileModal] = useState<boolean>(false);
+  const [isSigningIn, setIsSigningIn] = useState<boolean>(false);
 
   // Active reading modal
   const [activeReadingDoc, setActiveReadingDoc] = useState<NewspaperProject | null>(null);
@@ -87,30 +113,78 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
     };
   };
 
-  // Fetch public data from server (Real-time sync)
-  const fetchPublicData = async () => {
-    try {
-      const res = await fetch('/api/public/data');
-      if (res.ok) {
-        const data = await res.json();
-        setPublishedDoc(data.publishedNewspaper);
-        setExpiresAt(data.expiresAt);
-        setAnnouncements(data.announcements || []);
-        setArchives(data.publicArchives || []);
-        setPromoCodes(data.promoCodes || []);
-      }
-    } catch (err) {
-      console.error('Failed to fetch public data:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  // Real-time Firestore sync subscriptions
   useEffect(() => {
-    fetchPublicData();
-    // Fast real-time polling sync every 2 seconds across all connected browser clients
-    const interval = setInterval(fetchPublicData, 2000);
-    return () => clearInterval(interval);
+    // 1. Subscribe to Live Published Broadsheet
+    const unsubPub = subscribePublishedNewspaper((pub) => {
+      setPublishedDoc(pub);
+      setExpiresAt(pub?.expiresAt || null);
+      setLoading(false);
+    });
+
+    // 2. Subscribe to Announcements
+    const unsubAnn = subscribeAnnouncements((anns) => {
+      setAnnouncements(anns.filter((a) => a.active !== false));
+    });
+
+    // 3. Subscribe to Secret Reward Codes
+    const unsubCodes = subscribePromoCodes((codes) => {
+      setPromoCodes(codes.filter((c) => c.active !== false));
+    });
+
+    // 4. Subscribe to Projects for Archival Library
+    const unsubProj = subscribeProjects((projs) => {
+      setArchives(projs);
+    });
+
+    // 5. Subscribe to Community Users for Public Leaderboard
+    const unsubUsers = subscribeUsers((users) => {
+      setAllCommunityUsers(users);
+    });
+
+    // 6. Subscribe to Firebase Auth State
+    let unsubUserDoc: (() => void) | null = null;
+    const unsubAuth = onAuthStateChanged(auth, async (user) => {
+      if (unsubUserDoc) {
+        unsubUserDoc();
+        unsubUserDoc = null;
+      }
+
+      if (user) {
+        try {
+          const profile = await syncUserProfile(user);
+          setCurrentUserProfile(profile);
+          const discordName = profile?.discordUser || profile?.discordUsername;
+          if (discordName) {
+            setDiscordUser(discordName);
+          }
+        } catch (e) {
+          console.error('Failed to sync user profile:', e);
+        }
+
+        unsubUserDoc = subscribeCurrentUser(user.uid, (p) => {
+          if (p) {
+            setCurrentUserProfile(p);
+            const discordName = p.discordUser || p.discordUsername;
+            if (discordName) {
+              setDiscordUser(discordName);
+            }
+          }
+        });
+      } else {
+        setCurrentUserProfile(null);
+      }
+    });
+
+    return () => {
+      unsubPub();
+      unsubAnn();
+      unsubCodes();
+      unsubProj();
+      unsubUsers();
+      unsubAuth();
+      if (unsubUserDoc) unsubUserDoc();
+    };
   }, []);
 
   // Timer countdown hook
@@ -127,7 +201,6 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
 
       if (diff <= 0) {
         setTimeLeft({ hours: 0, minutes: 0, seconds: 0 });
-        fetchPublicData();
       } else {
         const hours = Math.floor(diff / (1000 * 60 * 60));
         const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
@@ -141,11 +214,49 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
     return () => clearInterval(timerId);
   }, [expiresAt]);
 
-  // Secret Code redemption submit
+  // Google Authentication handlers
+  const handleGoogleSignIn = async () => {
+    setIsSigningIn(true);
+    try {
+      const user = await loginWithGoogle();
+      if (user) {
+        const profile = await syncUserProfile(user);
+        setCurrentUserProfile(profile);
+        const discordName = profile?.discordUser || profile?.discordUsername;
+        if (discordName) {
+          setDiscordUser(discordName);
+        }
+      }
+    } catch (err) {
+      console.error('Google sign in error:', err);
+    } finally {
+      setIsSigningIn(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await logoutUser();
+      setCurrentUserProfile(null);
+      setShowProfileModal(false);
+    } catch (err) {
+      console.error('Logout error:', err);
+    }
+  };
+
+  // Unified Code redemption submit via Firestore (General Points Codes + Secret Broadsheet Codes)
   const handleRedeemCode = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!redeemCode.trim() || !discordUser.trim()) {
-      setRedeemStatus({ type: 'error', message: 'Please enter both the secret code and your Discord username.' });
+    const cleanCode = redeemCode.trim();
+    const cleanDiscord = (discordUser.trim() || currentUserProfile?.discordUser || currentUserProfile?.discordUsername || '').trim();
+
+    if (!cleanCode) {
+      setRedeemStatus({ type: 'error', message: 'Please enter a reward or promo code.' });
+      return;
+    }
+
+    if (!cleanDiscord && !currentUserProfile) {
+      setRedeemStatus({ type: 'error', message: 'Please enter your Discord username or sign in with Google first.' });
       return;
     }
 
@@ -153,47 +264,87 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
     setRedeemStatus({ type: null, message: '' });
 
     try {
-      const res = await fetch('/api/public/redeem', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          code: redeemCode.trim(),
-          discordUser: discordUser.trim(),
-        }),
-      });
+      // 1. Check if it is a General Points Reward Code first
+      const pointsRes = await redeemGeneralPointsCode(
+        cleanCode,
+        currentUserProfile?.uid,
+        cleanDiscord || currentUserProfile?.displayName || 'Community Member'
+      );
 
-      const data = await res.json();
-      if (res.ok && data.success) {
-        confetti({
-          particleCount: 120,
-          spread: 80,
-          origin: { y: 0.6 },
-          colors: ['#EAB308', '#D97706', '#F59E0B', '#FFFFFF', '#6366F1'],
-        });
+      if (pointsRes.success) {
+        try {
+          confetti({
+            particleCount: 140,
+            spread: 90,
+            origin: { y: 0.6 },
+            colors: ['#EAB308', '#F59E0B', '#10B981', '#FFFFFF', '#6366F1'],
+          });
+        } catch {
+          // ignore
+        }
 
         setRedeemStatus({
           type: 'success',
-          message: data.customMessage || 'Code successfully redeemed! Congratulations!',
+          message: `🎉 Reward Claimed! You received +${(pointsRes.pointsAwarded || 0).toLocaleString()} community points!`,
         });
         setRedeemCode('');
-        setDiscordUser('');
+        return;
+      }
+
+      // If the code was a points code but already redeemed or revoked:
+      if (pointsRes.error && !pointsRes.error.toLowerCase().includes('not found') && !pointsRes.error.toLowerCase().includes('invalid')) {
+        setRedeemStatus({
+          type: 'error',
+          message: pointsRes.error,
+        });
+        return;
+      }
+
+      // 2. Otherwise fallback to Secret Broadsheet Promo Code
+      const secretRes = await redeemCodeFirestore(cleanCode, cleanDiscord || 'Community Member');
+
+      // Also background ping server if available
+      fetch('/api/public/redeem', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: cleanCode, discordUser: cleanDiscord }),
+      }).catch(() => {});
+
+      if (secretRes.success) {
+        try {
+          confetti({
+            particleCount: 120,
+            spread: 80,
+            origin: { y: 0.6 },
+            colors: ['#EAB308', '#D97706', '#F59E0B', '#FFFFFF', '#6366F1'],
+          });
+        } catch {
+          // ignore
+        }
+
+        setRedeemStatus({
+          type: 'success',
+          message: secretRes.message || 'Secret broadsheet code successfully redeemed! Your reward has been recorded!',
+        });
+        setRedeemCode('');
       } else {
         setRedeemStatus({
           type: 'error',
-          message: data.error || 'Invalid or expired code. Please try again.',
+          message: secretRes.error || pointsRes.error || 'Invalid or expired code. Please verify and try again.',
         });
       }
-    } catch (err) {
+    } catch (err: any) {
+      console.error('Redemption error:', err);
       setRedeemStatus({
         type: 'error',
-        message: 'Network error submitting code. Please check server status.',
+        message: err?.message || 'Could not process redemption. Please verify code and try again.',
       });
     } finally {
       setIsSubmittingCode(false);
     }
   };
 
-  // Marketing Application submit (No preferred role field)
+  // Marketing Application submit via Firestore
   const handleApplicationSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!appDiscord.trim() || !appReason.trim()) {
@@ -205,7 +356,14 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
     setAppStatus({ type: null, message: '' });
 
     try {
-      const res = await fetch('/api/public/submit-application', {
+      const ok = await submitApplicationFirestore({
+        discordUser: appDiscord.trim(),
+        fullName: appFullName.trim() || 'Anonymous Applicant',
+        reason: appReason.trim(),
+      });
+
+      // Also background ping server if available
+      fetch('/api/public/submit-application', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -213,16 +371,19 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
           fullName: appFullName.trim() || 'Anonymous Applicant',
           reason: appReason.trim(),
         }),
-      });
+      }).catch(() => {});
 
-      const data = await res.json();
-      if (res.ok && data.success) {
-        confetti({
-          particleCount: 100,
-          spread: 70,
-          origin: { y: 0.6 },
-          colors: ['#10B981', '#34D399', '#F59E0B', '#FFFFFF'],
-        });
+      if (ok) {
+        try {
+          confetti({
+            particleCount: 100,
+            spread: 70,
+            origin: { y: 0.6 },
+            colors: ['#10B981', '#34D399', '#F59E0B', '#FFFFFF'],
+          });
+        } catch {
+          // ignore
+        }
 
         setAppStatus({
           type: 'success',
@@ -234,13 +395,14 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
       } else {
         setAppStatus({
           type: 'error',
-          message: data.error || 'Failed to submit application. Please try again.',
+          message: 'Failed to submit application. Please check connection.',
         });
       }
     } catch (err) {
+      console.error('Application submit error:', err);
       setAppStatus({
         type: 'error',
-        message: 'Network error submitting application. Please try again.',
+        message: 'Error submitting application. Please try again.',
       });
     } finally {
       setIsSubmittingApp(false);
@@ -297,7 +459,7 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
               <span>Apply for Marketing</span>
             </button>
 
-            {/* Redeem Secret Code Button */}
+            {/* Redeem Secret / Points Code Button */}
             <button
               onClick={() => {
                 setShowRedeemModal(true);
@@ -306,8 +468,45 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
               className="px-3.5 py-1.5 text-xs font-bold rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-black shadow-lg shadow-amber-500/20 transition-all flex items-center gap-1.5 transform hover:scale-105 active:scale-95"
             >
               <KeyRound className="w-3.5 h-3.5" />
-              <span>Redeem Secret Code</span>
+              <span>Redeem Code</span>
             </button>
+
+            {/* Google Sign-In or User Profile Badge */}
+            {currentUserProfile ? (
+              <button
+                onClick={() => setShowProfileModal(true)}
+                className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-neutral-900 to-[#181824] hover:from-neutral-850 hover:to-[#202030] border border-amber-500/40 hover:border-amber-400 transition-all flex items-center gap-2 shadow-md cursor-pointer group"
+                title="View your player profile, Discord handle, points, and tickets"
+              >
+                {currentUserProfile.photoURL ? (
+                  <img
+                    src={currentUserProfile.photoURL}
+                    alt=""
+                    className="w-5 h-5 rounded-full object-cover border border-amber-400/60"
+                  />
+                ) : (
+                  <div className="w-5 h-5 rounded-full bg-amber-400 text-black flex items-center justify-center font-bold text-[10px]">
+                    {currentUserProfile.displayName?.[0]?.toUpperCase() || 'U'}
+                  </div>
+                )}
+                <span className="text-xs font-bold text-amber-300 group-hover:text-amber-200">
+                  {(currentUserProfile.discordUser || currentUserProfile.discordUsername) ? `@${currentUserProfile.discordUser || currentUserProfile.discordUsername}` : (currentUserProfile.displayName || 'Player')}
+                </span>
+                <span className="text-[10px] font-mono font-black bg-amber-500 text-black px-2 py-0.5 rounded-full">
+                  {(currentUserProfile.points || 0).toLocaleString()} PTS
+                </span>
+              </button>
+            ) : (
+              <button
+                onClick={handleGoogleSignIn}
+                disabled={isSigningIn}
+                className="px-3.5 py-1.5 text-xs font-bold rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-lg shadow-blue-600/20 transition-all flex items-center gap-1.5 disabled:opacity-50 transform hover:scale-105 active:scale-95"
+                title="Sign in with Google to maintain your account and leaderboard ranking"
+              >
+                <LogIn className="w-3.5 h-3.5" />
+                <span>{isSigningIn ? 'Connecting...' : 'Sign In with Google'}</span>
+              </button>
+            )}
 
             {/* Staff Studio Entry */}
             <button
@@ -542,14 +741,32 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
                   </div>
                 </div>
               </div>
+
+              {/* Real-Time Broadsheet Emoji Reactions Bar (+1,000 Points) */}
+              <div className="w-full pt-4 border-t border-neutral-800/80">
+                <NewspaperReactionBar
+                  newspaperId={publishedDoc.id || 'live-broadsheet'}
+                  currentUser={currentUserProfile}
+                  onRequireAuth={handleGoogleSignIn}
+                />
+              </div>
             </div>
           ) : (
-            <div className="bg-neutral-900/60 border border-dashed border-neutral-800 rounded-3xl p-12 text-center space-y-4">
-              <AlertCircle className="w-10 h-10 text-neutral-500 mx-auto" />
-              <h4 className="text-lg font-serif font-bold text-neutral-300">No Newspaper Currently Live</h4>
-              <p className="text-xs text-neutral-500 max-w-md mx-auto">
-                Staff members can publish broadsheets from the Staff Studio with custom countdown timers. Explore our past archives below!
-              </p>
+            <div className="space-y-4">
+              <div className="bg-neutral-900/60 border border-dashed border-neutral-800 rounded-3xl p-12 text-center space-y-4">
+                <AlertCircle className="w-10 h-10 text-neutral-500 mx-auto" />
+                <h4 className="text-lg font-serif font-bold text-neutral-300">No Newspaper Currently Live</h4>
+                <p className="text-xs text-neutral-500 max-w-md mx-auto">
+                  Staff members can publish broadsheets from the Staff Studio with custom countdown timers. Explore our past archives below!
+                </p>
+              </div>
+
+              {/* General Portal Reaction Bar even when no live edition */}
+              <NewspaperReactionBar
+                newspaperId="mjj-portal-general"
+                currentUser={currentUserProfile}
+                onRequireAuth={handleGoogleSignIn}
+              />
             </div>
           )}
         </section>
@@ -613,6 +830,15 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
               No archived broadsheets yet. Once published newspapers expire on their countdown timer, they will appear here automatically.
             </div>
           )}
+        </section>
+
+        {/* Public Community Leaderboard Section */}
+        <section className="space-y-6">
+          <CommunityLeaderboardSection
+            users={allCommunityUsers}
+            currentUser={currentUserProfile}
+            onRequireAuth={handleGoogleSignIn}
+          />
         </section>
 
       </main>
@@ -823,6 +1049,14 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
           </div>
         </div>
       )}
+
+      {/* User Profile, Discord Handle, Points & VIP Passes Modal */}
+      <UserProfileModal
+        isOpen={showProfileModal}
+        onClose={() => setShowProfileModal(false)}
+        profile={currentUserProfile}
+        onLogout={handleLogout}
+      />
     </div>
   );
 };

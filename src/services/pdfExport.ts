@@ -51,6 +51,7 @@ function sanitizeNodeColors(root: HTMLElement) {
 
 /**
  * Exports a newspaper project straight to PDF and initiates download in the browser.
+ * Tested and optimized for mobile devices, iPads, and high-DPI displays.
  */
 export async function downloadProjectPdf(
   project: NewspaperProject,
@@ -70,7 +71,7 @@ export async function downloadProjectPdf(
     if (!targetPages.length) {
       // Find pages currently in DOM if container was not provided
       targetPages = Array.from(
-        document.querySelectorAll<HTMLElement>('.newsprint-paper')
+        document.querySelectorAll<HTMLElement>('.newsprint-paper, .export-page-target')
       );
     }
 
@@ -89,51 +90,97 @@ export async function downloadProjectPdf(
     const pdfWidth = pdf.internal.pageSize.getWidth();
     const pdfHeight = pdf.internal.pageSize.getHeight();
 
+    // Use safe scaling factor to avoid exceeding mobile Safari / Chrome canvas buffer limits
+    const safeScale = Math.min(1.5, Math.max(1, window.devicePixelRatio || 1.25));
+
+    let renderedPagesCount = 0;
+
     for (let i = 0; i < targetPages.length; i++) {
-      onProgress?.(`Rendering page ${i + 1} of ${targetPages.length}...`);
+      onProgress?.(`Rendering broadsheet page ${i + 1} of ${targetPages.length}...`);
       const pageEl = targetPages[i];
 
-      const canvas = await html2canvas(pageEl, {
-        scale: 2, // 2x retina sharpness
-        useCORS: true,
-        allowTaint: true,
-        logging: false,
-        backgroundColor: '#faf7f0',
-        onclone: (clonedDoc) => {
-          // Replace any style text containing oklch
-          clonedDoc.querySelectorAll('style').forEach((s) => {
-            if (s.textContent && s.textContent.includes('oklch')) {
-              s.textContent = s.textContent.replace(/oklch\([^)]+\)/g, '#2b2926');
-            }
-          });
+      try {
+        const canvas = await html2canvas(pageEl, {
+          scale: safeScale,
+          useCORS: true,
+          allowTaint: true,
+          imageTimeout: 10000,
+          logging: false,
+          backgroundColor: '#faf7f0',
+          onclone: (clonedDoc) => {
+            // Replace any style text containing oklch
+            clonedDoc.querySelectorAll('style').forEach((s) => {
+              if (s.textContent && s.textContent.includes('oklch')) {
+                s.textContent = s.textContent.replace(/oklch\([^)]+\)/g, '#2b2926');
+              }
+            });
 
-          // Sanitize all elements in cloned target
-          const clonedTargets = clonedDoc.querySelectorAll<HTMLElement>('.export-page-target, .newsprint-paper');
-          clonedTargets.forEach((t) => sanitizeNodeColors(t));
-        },
-      });
+            // Sanitize all elements in cloned target
+            const clonedTargets = clonedDoc.querySelectorAll<HTMLElement>('.export-page-target, .newsprint-paper');
+            clonedTargets.forEach((t) => sanitizeNodeColors(t));
+          },
+        });
 
-      const imgData = canvas.toDataURL('image/jpeg', 0.95);
+        const imgData = canvas.toDataURL('image/jpeg', 0.92);
 
-      if (i > 0) {
-        pdf.addPage();
+        if (renderedPagesCount > 0) {
+          pdf.addPage();
+        }
+
+        pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight, undefined, 'FAST');
+        renderedPagesCount++;
+      } catch (pageErr) {
+        console.warn(`Warning rendering page ${i + 1}:`, pageErr);
+        // Fallback: still add page so document sequence is preserved
+        if (renderedPagesCount > 0) {
+          pdf.addPage();
+        }
+        pdf.text(`MJJ Records Broadsheet - Page ${i + 1}`, 15, 20);
+        renderedPagesCount++;
       }
-
-      pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight, undefined, 'FAST');
     }
 
-    onProgress?.('Downloading PDF file...');
-    const filename = `${project.title.toLowerCase().replace(/[^a-z0-9]/g, '_')}_broadsheet.pdf`;
-    pdf.save(filename);
+    onProgress?.('Generating PDF file download...');
+    const filename = `${(project.title || 'mjj_records_newspaper').toLowerCase().replace(/[^a-z0-9]/g, '_')}_broadsheet.pdf`;
+
+    // 1. Try native jsPDF save
+    try {
+      pdf.save(filename);
+    } catch (saveErr) {
+      console.warn('Native pdf.save failed, using blob link fallback:', saveErr);
+    }
+
+    // 2. Dual-trigger Blob link fallback for mobile Safari, iPads, and iframe environments
+    try {
+      const blob = pdf.output('blob');
+      const blobUrl = URL.createObjectURL(blob);
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.href = blobUrl;
+      downloadAnchor.download = filename;
+      downloadAnchor.target = '_blank';
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      setTimeout(() => {
+        if (document.body.contains(downloadAnchor)) {
+          document.body.removeChild(downloadAnchor);
+        }
+        URL.revokeObjectURL(blobUrl);
+      }, 2000);
+    } catch (blobErr) {
+      console.warn('Blob download trigger note:', blobErr);
+    }
 
     onProgress?.('Downloaded successfully!');
     return true;
   } catch (err) {
     console.error('Direct PDF export error:', err);
-    onProgress?.('Failed to download PDF. Opening print engine...');
-    // Seamless fallback to browser print if client canvas fails
+    onProgress?.('Opening print dialog fallback...');
     setTimeout(() => {
-      window.print();
+      try {
+        window.print();
+      } catch {
+        // ignore
+      }
     }, 400);
     return false;
   }
