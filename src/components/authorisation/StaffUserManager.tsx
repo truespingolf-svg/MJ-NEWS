@@ -5,6 +5,12 @@ import {
   sendTicketToUser,
   sendCodeToUser,
   adjustUserPoints,
+  subscribeVotingConfig,
+  setPointsPerVoteInFirestore,
+  HomeLockConfig,
+  subscribeHomeLockConfig,
+  setHomeLockConfigInFirestore,
+  clearHomeLockConfigInFirestore,
 } from '../../services/firestoreStorage.ts';
 import {
   Users,
@@ -22,6 +28,15 @@ import {
   X,
   RefreshCw,
   Trophy,
+  ThumbsUp,
+  Settings,
+  Check,
+  Lock,
+  Clock,
+  ShieldAlert,
+  Play,
+  Square,
+  Unlock,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -30,12 +45,26 @@ export const StaffUserManager: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
 
+  // Voting Config state
+  const [pointsPerVote, setPointsPerVote] = useState<number>(1000);
+  const [tempPointsPerVote, setTempPointsPerVote] = useState<number>(1000);
+  const [isEditingVotePoints, setIsEditingVotePoints] = useState<boolean>(false);
+
+  // Home Screen Takeover Lock state
+  const [currentHomeLock, setCurrentHomeLock] = useState<HomeLockConfig | null>(null);
+  const [lockMsg, setLockMsg] = useState<string>('M.J. RECORD STUDIO LOCK — Maintenance & Synchronisation in Progress');
+  const [lockDurationMin, setLockDurationMin] = useState<number>(15);
+  const [lockRemainingSec, setLockRemainingSec] = useState<number>(0);
+
   // Modal actions
   const [activeModal, setActiveModal] = useState<'ticket' | 'code' | 'points' | null>(null);
 
   // Ticket Form state
   const [ticketEvent, setTicketEvent] = useState('MJJ Records Commemorative Press Showcase');
   const [ticketSeat, setTicketSeat] = useState('VIP Golden Circle • Press Row');
+  const [ticketNumInput, setTicketNumInput] = useState('');
+  const [ticketAccessLevel, setTicketAccessLevel] = useState('All Access & VIP Lounge');
+  const [ticketDressCode, setTicketDressCode] = useState('Black Tie / Smart Casual');
   const [ticketNote, setTicketNote] = useState('Granted by the MJJ Records Authorisation Centre.');
 
   // Code Form state
@@ -60,8 +89,107 @@ export const StaffUserManager: React.FC = () => {
         if (updated) setSelectedUser(updated);
       }
     });
-    return () => unsub();
+
+    const unsubConfig = subscribeVotingConfig((config) => {
+      setPointsPerVote(config.pointsPerVote);
+      setTempPointsPerVote(config.pointsPerVote);
+    });
+
+    const unsubHomeLock = subscribeHomeLockConfig((cfg) => {
+      setCurrentHomeLock(cfg);
+      if (cfg && cfg.message) {
+        setLockMsg(cfg.message);
+      }
+    });
+
+    return () => {
+      unsub();
+      unsubConfig();
+      unsubHomeLock();
+    };
   }, [selectedUser?.uid]);
+
+  // Countdown timer calculation for staff preview
+  useEffect(() => {
+    if (!currentHomeLock || !currentHomeLock.isLocked || !currentHomeLock.endTime) {
+      setLockRemainingSec(0);
+      return;
+    }
+    const updateSec = () => {
+      const diff = Math.max(0, Math.floor((currentHomeLock.endTime - Date.now()) / 1000));
+      setLockRemainingSec(diff);
+    };
+    updateSec();
+    const interval = setInterval(updateSec, 1000);
+    return () => clearInterval(interval);
+  }, [currentHomeLock]);
+
+  const handlePushHomeLock = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    const mins = Math.max(1, Number(lockDurationMin) || 5);
+    const endTime = Date.now() + mins * 60 * 1000;
+    try {
+      const ok = await setHomeLockConfigInFirestore({
+        isLocked: true,
+        message: lockMsg.trim() || 'Home Screen is locked by the Authorisation Centre.',
+        durationMinutes: mins,
+        endTime,
+        createdAt: new Date().toISOString(),
+        createdBy: 'Authorisation Centre',
+      });
+      if (ok) {
+        confetti({ particleCount: 70, spread: 60, origin: { y: 0.6 } });
+        setStatusMsg({
+          type: 'success',
+          text: `🔒 Full Screen Takeover Lock pushed live to Home Screen for ${mins} minutes!`,
+        });
+      } else {
+        setStatusMsg({ type: 'error', text: 'Failed to push takeover lock to Firestore.' });
+      }
+    } catch {
+      setStatusMsg({ type: 'error', text: 'Error pushing takeover lock.' });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleClearHomeLock = async () => {
+    setIsSubmitting(true);
+    try {
+      const ok = await clearHomeLockConfigInFirestore();
+      if (ok) {
+        setStatusMsg({
+          type: 'success',
+          text: '🔓 Home Screen Takeover Lock cleared! Normal operations & portal access restored.',
+        });
+      }
+    } catch {
+      setStatusMsg({ type: 'error', text: 'Failed to clear takeover lock.' });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleSaveVotingConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    try {
+      const ok = await setPointsPerVoteInFirestore(tempPointsPerVote);
+      if (ok) {
+        setIsEditingVotePoints(false);
+        setStatusMsg({
+          type: 'success',
+          text: `Updated Voting System: Each vote now awards +${tempPointsPerVote.toLocaleString()} PTS to the target player!`,
+        });
+        confetti({ particleCount: 50, spread: 60, origin: { y: 0.6 } });
+      }
+    } catch {
+      setStatusMsg({ type: 'error', text: 'Failed to update voting points configuration.' });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const filteredUsers = users.filter((u) => {
     const term = searchTerm.toLowerCase();
@@ -82,6 +210,9 @@ export const StaffUserManager: React.FC = () => {
       const ok = await sendTicketToUser(selectedUser.uid, {
         eventTitle: ticketEvent,
         seatTier: ticketSeat,
+        ticketNumber: ticketNumInput.trim() || undefined,
+        accessLevel: ticketAccessLevel.trim() || undefined,
+        dressCode: ticketDressCode.trim() || undefined,
         staffNote: ticketNote,
       });
 
@@ -178,6 +309,184 @@ export const StaffUserManager: React.FC = () => {
             Total Points Circulating: {users.reduce((acc, u) => acc + (u.points || 0), 0).toLocaleString()}
           </span>
         </div>
+      </div>
+
+      {/* Voting System Points Configuration Card */}
+      <div className="bg-[#13131c] border border-amber-500/40 rounded-2xl p-5 shadow-xl flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center">
+            <ThumbsUp className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="font-bold text-white text-sm">Community Voting &amp; Points System</h3>
+              <span className="text-[10px] font-mono text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/30">
+                REAL-TIME FIRESTORE CONFIG
+              </span>
+            </div>
+            <p className="text-xs text-neutral-400">
+              Each vote cast by community members awards{' '}
+              <strong className="text-amber-300 font-mono">+{pointsPerVote.toLocaleString()} PTS</strong> to the receiving player.
+            </p>
+          </div>
+        </div>
+
+        <div>
+          {isEditingVotePoints ? (
+            <form onSubmit={handleSaveVotingConfig} className="flex items-center gap-2">
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500 text-xs font-mono">
+                  +
+                </span>
+                <input
+                  type="number"
+                  value={tempPointsPerVote}
+                  onChange={(e) => setTempPointsPerVote(Number(e.target.value))}
+                  min={1}
+                  step={50}
+                  className="w-32 bg-neutral-950 border border-amber-400 rounded-xl pl-7 pr-3 py-1.5 text-xs text-white font-mono focus:outline-none"
+                  autoFocus
+                />
+              </div>
+              <span className="text-xs text-neutral-400 font-mono">PTS/vote</span>
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="px-3 py-1.5 bg-amber-400 text-black font-bold text-xs rounded-xl hover:bg-amber-300 flex items-center gap-1"
+              >
+                <Check className="w-3.5 h-3.5" />
+                <span>Save</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsEditingVotePoints(false)}
+                className="px-2.5 py-1.5 bg-neutral-800 text-neutral-300 text-xs rounded-xl hover:bg-neutral-700"
+              >
+                Cancel
+              </button>
+            </form>
+          ) : (
+            <button
+              onClick={() => {
+                setTempPointsPerVote(pointsPerVote);
+                setIsEditingVotePoints(true);
+              }}
+              className="px-4 py-2 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-xl text-xs font-bold flex items-center gap-2 transition-all shadow-sm"
+            >
+              <Settings className="w-3.5 h-3.5 text-amber-400" />
+              <span>Change Points Per Vote (Current: +{pointsPerVote.toLocaleString()} PTS)</span>
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Global Home Screen Timer Lock (Takeover Mode) Card */}
+      <div className="bg-[#12121c] border border-amber-500/40 rounded-2xl p-5 shadow-xl space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-4 pb-3 border-b border-[#252535]">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-amber-500/20 to-yellow-500/10 text-amber-400 flex items-center justify-center border border-amber-500/30">
+              <Lock className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="font-bold text-white text-sm">Global Home Screen Takeover Lock Screen</h3>
+                <span className="text-[10px] font-mono text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/30">
+                  REAL-TIME SYNCED
+                </span>
+              </div>
+              <p className="text-xs text-neutral-400">
+                Push a full-screen countdown lock overlay across the home screen with a custom message and timer.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 font-mono text-xs">
+            {currentHomeLock?.isLocked && lockRemainingSec > 0 ? (
+              <div className="flex items-center gap-2">
+                <span className="px-3 py-1.5 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 font-bold flex items-center gap-1.5 animate-pulse">
+                  <ShieldAlert className="w-4 h-4 text-amber-400" />
+                  <span>
+                    ACTIVE LOCK: {Math.floor(lockRemainingSec / 60)}m {lockRemainingSec % 60}s
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  onClick={handleClearHomeLock}
+                  disabled={isSubmitting}
+                  className="px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-300 border border-red-500/40 rounded-xl font-bold flex items-center gap-1.5 transition-all cursor-pointer"
+                >
+                  <Unlock className="w-3.5 h-3.5" />
+                  <span>CLEAR TAKEOVER LOCK</span>
+                </button>
+              </div>
+            ) : (
+              <span className="px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-bold flex items-center gap-1.5">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                <span>UNLOCKED (Normal Operations)</span>
+              </span>
+            )}
+          </div>
+        </div>
+
+        <form onSubmit={handlePushHomeLock} className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+          <div className="md:col-span-2 space-y-1.5">
+            <label className="block font-semibold text-neutral-300">
+              Lock Screen Broadcast Message (Shown to Visitors)
+            </label>
+            <input
+              type="text"
+              value={lockMsg}
+              onChange={(e) => setLockMsg(e.target.value)}
+              placeholder="e.g. Home screen is locked for maintenance & special broadcast preparation."
+              className="w-full bg-neutral-950 border border-neutral-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-400"
+              required
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="block font-semibold text-neutral-300">
+              Timer Duration (Minutes)
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                value={lockDurationMin}
+                onChange={(e) => setLockDurationMin(Number(e.target.value))}
+                min={1}
+                max={1440}
+                className="w-24 bg-neutral-950 border border-neutral-700 rounded-xl px-3 py-2 text-xs text-amber-300 font-mono text-center focus:outline-none focus:border-amber-400"
+                required
+              />
+              <div className="flex items-center gap-1">
+                {[5, 15, 30, 60].map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setLockDurationMin(m)}
+                    className={`px-2 py-1 rounded-lg text-[11px] font-mono border ${
+                      lockDurationMin === m
+                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 font-bold'
+                        : 'bg-neutral-900 text-neutral-400 border-neutral-800 hover:text-white'
+                    }`}
+                  >
+                    {m}m
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="md:col-span-3 pt-1 flex justify-end">
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="w-full sm:w-auto px-6 py-2.5 bg-gradient-to-r from-amber-500 via-yellow-500 to-amber-500 hover:from-amber-400 hover:to-yellow-400 text-black font-bold text-xs rounded-xl uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-amber-500/10 cursor-pointer"
+            >
+              <Lock className="w-4 h-4" />
+              <span>PUSH FULL SCREEN TAKEOVER LOCK TO HOME PORTAL</span>
+            </button>
+          </div>
+        </form>
       </div>
 
       {statusMsg.text && (
@@ -352,17 +661,58 @@ export const StaffUserManager: React.FC = () => {
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-neutral-300 mb-1">
-                  Seat / VIP Access Tier
-                </label>
-                <input
-                  type="text"
-                  value={ticketSeat}
-                  onChange={(e) => setTicketSeat(e.target.value)}
-                  className="w-full bg-neutral-950 border border-neutral-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-400"
-                  required
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-neutral-300 mb-1">
+                    Seat / VIP Access Tier
+                  </label>
+                  <input
+                    type="text"
+                    value={ticketSeat}
+                    onChange={(e) => setTicketSeat(e.target.value)}
+                    className="w-full bg-neutral-950 border border-neutral-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-400"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-neutral-300 mb-1">
+                    Ticket Pass Serial / Number
+                  </label>
+                  <input
+                    type="text"
+                    value={ticketNumInput}
+                    onChange={(e) => setTicketNumInput(e.target.value)}
+                    placeholder="e.g. NXP-VIP-9901 (Auto if blank)"
+                    className="w-full bg-neutral-950 border border-neutral-700 rounded-xl px-3 py-2 text-xs font-mono text-amber-300 focus:outline-none focus:border-amber-400"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-neutral-300 mb-1">
+                    Access Level
+                  </label>
+                  <input
+                    type="text"
+                    value={ticketAccessLevel}
+                    onChange={(e) => setTicketAccessLevel(e.target.value)}
+                    className="w-full bg-neutral-950 border border-neutral-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-400"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-neutral-300 mb-1">
+                    Dress Code
+                  </label>
+                  <input
+                    type="text"
+                    value={ticketDressCode}
+                    onChange={(e) => setTicketDressCode(e.target.value)}
+                    className="w-full bg-neutral-950 border border-neutral-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-400"
+                  />
+                </div>
               </div>
 
               <div>

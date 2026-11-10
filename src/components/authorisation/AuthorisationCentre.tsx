@@ -155,7 +155,33 @@ export const AuthorisationCentre: React.FC<AuthorisationCentreProps> = ({
 
       pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, Math.min(pdfHeight, 297), undefined, 'FAST');
       const filename = `${currentDoc.title.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${currentDoc.referenceNumber.toLowerCase().replace(/[^a-z0-9]/g, '_')}.pdf`;
-      pdf.save(filename);
+      
+      // 1. Native jsPDF save
+      try {
+        pdf.save(filename);
+      } catch (saveErr) {
+        console.warn('Native pdf.save failed, using blob link fallback:', saveErr);
+      }
+
+      // 2. Dual-trigger Blob link fallback
+      try {
+        const blob = pdf.output('blob');
+        const blobUrl = URL.createObjectURL(blob);
+        const downloadAnchor = document.createElement('a');
+        downloadAnchor.href = blobUrl;
+        downloadAnchor.download = filename;
+        downloadAnchor.target = '_blank';
+        document.body.appendChild(downloadAnchor);
+        downloadAnchor.click();
+        setTimeout(() => {
+          if (document.body.contains(downloadAnchor)) {
+            document.body.removeChild(downloadAnchor);
+          }
+          URL.revokeObjectURL(blobUrl);
+        }, 2000);
+      } catch (blobErr) {
+        console.warn('Blob fallback note:', blobErr);
+      }
 
       setStatusMessage('Downloaded PDF successfully!');
       setTimeout(() => {

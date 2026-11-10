@@ -32,6 +32,7 @@ import { downloadProjectPdf } from './services/pdfExport.ts';
 
 // New Feature Expansion & MJJ Records Portal Modules
 import { MjjRecordsPortal } from './components/portal/MjjRecordsPortal.tsx';
+import { HomeScreenLockTakeover } from './components/home/HomeScreenLockTakeover.tsx';
 import { NewsprintTextureOverlay } from './components/common/NewsprintTextureOverlay.tsx';
 import { StaffPasscodeModal } from './components/common/StaffPasscodeModal.tsx';
 import { TopNavigation, MainAppView } from './components/common/TopNavigation.tsx';
@@ -397,6 +398,9 @@ export default function App() {
     <div className="h-screen w-screen flex flex-col bg-neutral-950 text-neutral-100 overflow-hidden font-sans-studio relative">
       {/* Global Newsprint Paper Texture Overlay */}
       <NewsprintTextureOverlay enabled={textureEnabled} />
+
+      {/* Global Home Screen Timer Takeover Lock Overlay */}
+      <HomeScreenLockTakeover />
 
       {/* PUBLIC PORTAL VS STAFF STUDIO ROUTER */}
       {appMode === 'public' ? (

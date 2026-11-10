@@ -9,12 +9,13 @@ import {
   ShieldCheck,
   ArrowRight,
   Loader2,
+  Lock,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { loginWithGoogle } from '../../firebase.ts';
 import {
   syncUserProfile,
-  loginOrCreateCommunityPlayer,
+  loginOrCreateCommunityPlayerWithPassword,
   UserProfile,
 } from '../../services/firestoreStorage.ts';
 
@@ -30,6 +31,7 @@ export const AuthSignInModal: React.FC<AuthSignInModalProps> = ({
   onSuccess,
 }) => {
   const [discordInput, setDiscordInput] = useState('');
+  const [passwordInput, setPasswordInput] = useState('');
   const [displayNameInput, setDisplayNameInput] = useState('');
   const [isSigningInGoogle, setIsSigningInGoogle] = useState(false);
   const [isSigningInDiscord, setIsSigningInDiscord] = useState(false);
@@ -60,22 +62,26 @@ export const AuthSignInModal: React.FC<AuthSignInModalProps> = ({
       console.warn('Google sign-in popup notice:', err);
       const code = err?.code || '';
       if (code === 'auth/popup-blocked') {
-        setErrorMsg('Pop-up was blocked by your browser. You can allow pop-ups or use your Discord username below to sign in instantly!');
+        setErrorMsg('Pop-up was blocked by your browser. You can allow pop-ups or sign in with your account password below!');
       } else if (code === 'auth/unauthorized-domain') {
-        setErrorMsg('This web preview domain is not in Firebase Auth whitelist. Please use your Discord username below for instant sign-in!');
+        setErrorMsg('This web preview domain is not in Firebase Auth whitelist. Please sign in with your account password below!');
       } else {
-        setErrorMsg('Google Sign-In was cancelled or unavailable on this device. You can sign in instantly with your Discord handle below!');
+        setErrorMsg('Google Sign-In was cancelled or unavailable. You can sign in with your password below!');
       }
     } finally {
       setIsSigningInGoogle(false);
     }
   };
 
-  const handleDiscordAuth = async (e: React.FormEvent) => {
+  const handlePasswordAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanDiscord = discordInput.trim().replace(/^@/, '');
     if (!cleanDiscord) {
-      setErrorMsg('Please enter your Discord username.');
+      setErrorMsg('Please enter your Discord username or handle.');
+      return;
+    }
+    if (!passwordInput.trim()) {
+      setErrorMsg('Please enter a password for your account.');
       return;
     }
 
@@ -83,23 +89,28 @@ export const AuthSignInModal: React.FC<AuthSignInModalProps> = ({
     setErrorMsg(null);
 
     try {
-      const profile = await loginOrCreateCommunityPlayer(
+      const res = await loginOrCreateCommunityPlayerWithPassword(
         cleanDiscord,
+        passwordInput.trim(),
         displayNameInput.trim() || cleanDiscord
       );
 
-      confetti({
-        particleCount: 120,
-        spread: 80,
-        origin: { y: 0.6 },
-        colors: ['#EAB308', '#6366F1', '#10B981', '#FFFFFF'],
-      });
+      if (res.success && res.profile) {
+        confetti({
+          particleCount: 120,
+          spread: 80,
+          origin: { y: 0.6 },
+          colors: ['#EAB308', '#6366F1', '#10B981', '#FFFFFF'],
+        });
 
-      onSuccess(profile);
-      onClose();
+        onSuccess(res.profile);
+        onClose();
+      } else {
+        setErrorMsg(res.error || 'Failed to log into account.');
+      }
     } catch (err: any) {
       console.error('Player sign in error:', err);
-      setErrorMsg(err?.message || 'Failed to create player profile. Please try again.');
+      setErrorMsg(err?.message || 'Failed to access player profile. Please try again.');
     } finally {
       setIsSigningInDiscord(false);
     }
@@ -165,16 +176,16 @@ export const AuthSignInModal: React.FC<AuthSignInModalProps> = ({
         <div className="relative flex py-1 items-center">
           <div className="flex-grow border-t border-neutral-800" />
           <span className="flex-shrink mx-3 text-[10px] font-mono uppercase text-neutral-500">
-            Or Direct Community Sign-In
+            Or Direct Account Sign-In with Password
           </span>
           <div className="flex-grow border-t border-neutral-800" />
         </div>
 
-        {/* Option 2: Instant Discord / Player Sign-In (100% Reliable across all devices & iframes) */}
-        <form onSubmit={handleDiscordAuth} className="space-y-3">
+        {/* Option 2: Password-Protected Direct Account Login */}
+        <form onSubmit={handlePasswordAuth} className="space-y-3">
           <div>
             <label className="block text-[11px] font-mono uppercase text-neutral-300 mb-1">
-              Your Discord Username <span className="text-amber-400">*</span>
+              Your Discord Username / Handle <span className="text-amber-400">*</span>
             </label>
             <div className="relative">
               <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-500 font-mono text-xs">
@@ -185,7 +196,26 @@ export const AuthSignInModal: React.FC<AuthSignInModalProps> = ({
                 value={discordInput}
                 onChange={(e) => setDiscordInput(e.target.value)}
                 placeholder="e.g. moonwalker_99"
-                className="w-full pl-8 pr-4 py-2.5 rounded-xl bg-neutral-950 border border-neutral-700 text-white font-mono placeholder:text-neutral-600 focus:outline-none focus:border-amber-400 text-xs font-bold"
+                className="w-full pl-8 pr-4 py-2 rounded-xl bg-neutral-950 border border-neutral-700 text-white font-mono placeholder:text-neutral-600 focus:outline-none focus:border-amber-400 text-xs font-bold"
+                required
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-mono uppercase text-neutral-300 mb-1">
+              Account Password <span className="text-amber-400">*</span>
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500">
+                <Lock className="w-3.5 h-3.5" />
+              </span>
+              <input
+                type="password"
+                value={passwordInput}
+                onChange={(e) => setPasswordInput(e.target.value)}
+                placeholder="Enter or create account password"
+                className="w-full pl-8 pr-4 py-2 rounded-xl bg-neutral-950 border border-neutral-700 text-white placeholder:text-neutral-600 focus:outline-none focus:border-amber-400 text-xs font-mono"
                 required
               />
             </div>
@@ -213,14 +243,14 @@ export const AuthSignInModal: React.FC<AuthSignInModalProps> = ({
 
           <button
             type="submit"
-            disabled={isSigningInDiscord || !discordInput.trim()}
+            disabled={isSigningInDiscord || !discordInput.trim() || !passwordInput.trim()}
             className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-black font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20 transition-all disabled:opacity-50 cursor-pointer"
           >
             {isSigningInDiscord ? (
               <Loader2 className="w-4 h-4 animate-spin" />
             ) : (
               <>
-                <span>Enter &amp; Start Playing (+1,000 Welcome PTS)</span>
+                <span>Sign In / Create Account (+1,000 PTS)</span>
                 <ArrowRight className="w-3.5 h-3.5" />
               </>
             )}
@@ -228,7 +258,7 @@ export const AuthSignInModal: React.FC<AuthSignInModalProps> = ({
         </form>
 
         <div className="text-center text-[10px] text-neutral-500">
-          Your account and points will persist across all sessions in real-time Firestore.
+          Your account credentials and points persist across sessions in Firestore.
         </div>
       </div>
     </div>

@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { UserProfile, updateUserDiscord } from '../../services/firestoreStorage.ts';
+import React, { useState, useEffect } from 'react';
+import { UserProfile, updateUserDiscord, subscribeVotingConfig } from '../../services/firestoreStorage.ts';
 import {
   User,
   Ticket,
@@ -35,6 +35,14 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   const [discordInput, setDiscordInput] = useState(profile?.discordUser || '');
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState('');
+  const [pointsPerVote, setPointsPerVote] = useState<number>(1000);
+
+  useEffect(() => {
+    const unsub = subscribeVotingConfig((config) => {
+      setPointsPerVote(config.pointsPerVote);
+    });
+    return () => unsub();
+  }, []);
 
   if (!isOpen || !profile) return null;
 
@@ -168,9 +176,12 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
             </div>
 
             <div className="p-4 bg-[#151522] border border-[#2b2b3e] rounded-2xl">
-              <div className="text-[10px] font-mono uppercase text-neutral-400 mb-1 flex items-center gap-1">
-                <ThumbsUp className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Community Votes</span>
+              <div className="text-[10px] font-mono uppercase text-neutral-400 mb-1 flex items-center justify-between">
+                <span className="flex items-center gap-1">
+                  <ThumbsUp className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Community Votes</span>
+                </span>
+                <span className="text-[9px] text-amber-400 font-mono">+{pointsPerVote.toLocaleString()} PTS/vote</span>
               </div>
               <div className="font-mono text-2xl font-black text-emerald-300">
                 {profile.votes || 0} <span className="text-xs font-normal text-neutral-500">VOTES</span>

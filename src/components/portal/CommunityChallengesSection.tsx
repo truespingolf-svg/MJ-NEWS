@@ -24,6 +24,7 @@ import {
   subscribeChallengeEntries,
   submitChallengeEntryFirestore,
   voteForChallengeEntry,
+  subscribeVotingConfig,
   UserProfile,
 } from '../../services/firestoreStorage.ts';
 
@@ -53,6 +54,16 @@ export const CommunityChallengesSection: React.FC<CommunityChallengesSectionProp
   });
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Real-time voting config state
+  const [pointsPerVote, setPointsPerVote] = useState<number>(1000);
+
+  useEffect(() => {
+    const unsubConfig = subscribeVotingConfig((config) => {
+      setPointsPerVote(config.pointsPerVote);
+    });
+    return () => unsubConfig();
+  }, []);
 
   // Real-time challenges subscription
   useEffect(() => {
@@ -90,15 +101,16 @@ export const CommunityChallengesSection: React.FC<CommunityChallengesSectionProp
 
   const activeChallenge = challenges.find((c) => c.id === activeChallengeId);
 
-  // Handle local photo file upload & convert to base64
+  // Handle local photo/document file upload & convert to base64 with max 25MB limit
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 2.5 * 1024 * 1024) {
+    const MAX_25MB = 25 * 1024 * 1024;
+    if (file.size > MAX_25MB) {
       setSubmitStatus({
         type: 'error',
-        message: 'Photo is too large. Please select an image under 2.5MB.',
+        message: 'File size exceeds 25MB limit. Please select a file under 25MB.',
       });
       return;
     }
@@ -516,7 +528,7 @@ export const CommunityChallengesSection: React.FC<CommunityChallengesSectionProp
                     <input
                       ref={fileInputRef}
                       type="file"
-                      accept="image/*"
+                      accept="image/*,.png,.jpg,.jpeg,.webp,.gif,.svg,.pdf,.docx,.txt"
                       onChange={handleFileChange}
                       className="hidden"
                     />

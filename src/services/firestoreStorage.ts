@@ -412,7 +412,10 @@ export function subscribeAnnouncements(callback: (announcements: any[]) => void)
     colRef,
     (snap) => {
       const list: any[] = [];
-      snap.forEach((d) => list.push(d.data()));
+      snap.forEach((d) => {
+        const data = d.data();
+        list.push({ id: d.id, ...data });
+      });
       list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
       callback(list);
     },
@@ -442,11 +445,64 @@ export async function addAnnouncementFirestore(text: string): Promise<boolean> {
 }
 
 export async function deleteAnnouncementFirestore(id: string): Promise<boolean> {
+  if (!id) return false;
   try {
     await deleteDoc(doc(db, 'announcements', id));
     return true;
   } catch (err) {
     handleFirestoreError(err, OperationType.DELETE, `announcements/${id}`);
+    return false;
+  }
+}
+
+// -------------------------------------------------------------
+// 3.5. REAL-TIME GLOBAL HOME SCREEN TIMER TAKEOVER LOCK
+// -------------------------------------------------------------
+
+export interface HomeLockConfig {
+  isLocked: boolean;
+  message: string;
+  endTime: number; // Unix timestamp ms
+  durationMinutes: number;
+  createdAt?: string;
+  createdBy?: string;
+}
+
+export function subscribeHomeLockConfig(callback: (config: HomeLockConfig | null) => void): () => void {
+  const docRef = doc(db, 'system', 'homeLock');
+  return onSnapshot(
+    docRef,
+    (snap) => {
+      if (snap.exists()) {
+        callback(snap.data() as HomeLockConfig);
+      } else {
+        callback(null);
+      }
+    },
+    (err) => {
+      handleFirestoreError(err, OperationType.GET, 'system/homeLock');
+    }
+  );
+}
+
+export async function setHomeLockConfigInFirestore(config: HomeLockConfig): Promise<boolean> {
+  try {
+    const docRef = doc(db, 'system', 'homeLock');
+    await setDoc(docRef, config, { merge: true });
+    return true;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, 'system/homeLock');
+    return false;
+  }
+}
+
+export async function clearHomeLockConfigInFirestore(): Promise<boolean> {
+  try {
+    const docRef = doc(db, 'system', 'homeLock');
+    await setDoc(docRef, { isLocked: false, endTime: 0 }, { merge: true });
+    return true;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, 'system/homeLock');
     return false;
   }
 }
@@ -677,6 +733,10 @@ export interface UserTicketGrant {
   ticketNumber: string;
   eventTitle: string;
   seatTier: string;
+  accessLevel?: string;
+  dressCode?: string;
+  dateText?: string;
+  timeText?: string;
   issuedAt: string;
   staffNote?: string;
 }
@@ -695,11 +755,13 @@ export interface UserProfile {
   displayName: string | null;
   discordUser: string;
   discordUsername?: string;
+  accountPassword?: string;
   points: number;
   votes: number;
   photoURL: string | null;
   reactedNewspaperIds: string[];
   votedUserIds: string[];
+  lastVotedMap?: Record<string, number>;
   tickets: UserTicketGrant[];
   assignedCodes: UserAssignedCode[];
   createdAt: string;
@@ -894,19 +956,24 @@ export function subscribeNewspaperReactions(
   );
 }
 
-// Upvote / vote for player (+1 vote and +1,000 points to target player)
+// Upvote / vote for player (+1 vote and configurable points to target player, 5-hour cooldown per target)
 export async function voteForUser(
   voterUid: string,
   targetUid: string
 ): Promise<{ success: boolean; message: string }> {
   if (!voterUid) {
-    return { success: false, message: 'Please sign in with Google to vote for community members.' };
+    return { success: false, message: 'Please sign in to vote for community members.' };
   }
   if (voterUid === targetUid) {
     return { success: false, message: 'You cannot vote for yourself!' };
   }
 
+  const VOTE_COOLDOWN_MS = 5 * 60 * 60 * 1000; // 5 Hours (18,000,000 ms)
+
   try {
+    const configSnap = await getDoc(doc(db, 'system', 'votingConfig'));
+    const pointsPerVote = configSnap.exists() ? Math.max(1, Number(configSnap.data().pointsPerVote) || 1000) : 1000;
+
     const voterRef = doc(db, 'users', voterUid);
     const targetRef = doc(db, 'users', targetUid);
 
@@ -918,27 +985,41 @@ export async function voteForUser(
     const voter = voterSnap.data() as UserProfile;
     const target = targetSnap.data() as UserProfile;
 
-    const votedList = voter.votedUserIds || [];
-    if (votedList.includes(targetUid)) {
-      return { success: false, message: `You have already voted for @${target.discordUser || target.displayName}!` };
+    // Check 5-hour voting cooldown for this target user
+    const lastVotedMap = voter.lastVotedMap || {};
+    const lastVotedTime = lastVotedMap[targetUid] || 0;
+    const elapsed = Date.now() - lastVotedTime;
+
+    if (lastVotedTime > 0 && elapsed < VOTE_COOLDOWN_MS) {
+      const remainingMs = VOTE_COOLDOWN_MS - elapsed;
+      const hours = Math.floor(remainingMs / (3600 * 1000));
+      const mins = Math.ceil((remainingMs % (3600 * 1000)) / (60 * 1000));
+      return {
+        success: false,
+        message: `⏳ Voting Cooldown: You can vote for @${target.discordUser || target.displayName} again in ${hours}h ${mins}m! (1 vote allowed every 5 hours)`,
+      };
     }
+
+    const votedList = voter.votedUserIds || [];
+    const updatedLastVotedMap = { ...lastVotedMap, [targetUid]: Date.now() };
 
     // Update voter's record
     await setDoc(
       voterRef,
       {
-        votedUserIds: [...votedList, targetUid],
+        votedUserIds: Array.from(new Set([...votedList, targetUid])),
+        lastVotedMap: updatedLastVotedMap,
         updatedAt: new Date().toISOString(),
       },
       { merge: true }
     );
 
-    // Award +1 vote and +1,000 points to target
+    // Award +1 vote and +pointsPerVote points to target
     await setDoc(
       targetRef,
       {
         votes: (target.votes || 0) + 1,
-        points: (target.points || 0) + 1000,
+        points: (target.points || 0) + pointsPerVote,
         updatedAt: new Date().toISOString(),
       },
       { merge: true }
@@ -946,7 +1027,7 @@ export async function voteForUser(
 
     return {
       success: true,
-      message: `🎉 Vote cast! @${target.discordUser || target.displayName} received +1 Vote and +1,000 Points!`,
+      message: `🎉 Vote cast! @${target.discordUser || target.displayName} received +1 Vote and +${pointsPerVote.toLocaleString()} Points!`,
     };
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, `users/${targetUid}`);
@@ -954,10 +1035,19 @@ export async function voteForUser(
   }
 }
 
-// Staff Send Ticket / Pass to User
+// Staff Send Ticket / Pass to User (Fully Customizable)
 export async function sendTicketToUser(
   targetUid: string,
-  ticketData: { eventTitle: string; seatTier: string; staffNote?: string }
+  ticketData: {
+    eventTitle: string;
+    seatTier: string;
+    ticketNumber?: string;
+    accessLevel?: string;
+    dressCode?: string;
+    dateText?: string;
+    timeText?: string;
+    staffNote?: string;
+  }
 ): Promise<boolean> {
   try {
     const userRef = doc(db, 'users', targetUid);
@@ -969,9 +1059,13 @@ export async function sendTicketToUser(
 
     const newTicket: UserTicketGrant = {
       id: `ticket-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-      ticketNumber: `MJJ-PASS-${Math.floor(100000 + Math.random() * 900000)}`,
+      ticketNumber: ticketData.ticketNumber || `MJJ-PASS-${Math.floor(100000 + Math.random() * 900000)}`,
       eventTitle: ticketData.eventTitle || 'MJJ Records Official VIP Press Event',
       seatTier: ticketData.seatTier || 'VIP Front Row Access',
+      accessLevel: ticketData.accessLevel || 'All Access & VIP Lounge',
+      dressCode: ticketData.dressCode || 'Black Tie / Smart Casual',
+      dateText: ticketData.dateText || new Date().toLocaleDateString(),
+      timeText: ticketData.timeText || '8:00 PM EST',
       issuedAt: new Date().toISOString(),
       staffNote: ticketData.staffNote || 'Issued with compliments of the MJJ Records Authorisation Centre.',
     };
@@ -1430,6 +1524,9 @@ export async function voteForChallengeEntry(
   }
 
   try {
+    const configSnap = await getDoc(doc(db, 'system', 'votingConfig'));
+    const pointsPerVote = configSnap.exists() ? Math.max(1, Number(configSnap.data().pointsPerVote) || 1000) : 1000;
+
     const entryRef = doc(db, 'challengeEntries', entryId);
     const snap = await getDoc(entryRef);
     if (!snap.exists()) {
@@ -1459,7 +1556,7 @@ export async function voteForChallengeEntry(
       { merge: true }
     );
 
-    // Reward entrant +50 points for each community vote!
+    // Reward entrant pointsPerVote points for each community vote!
     if (entry.userId) {
       const authorRef = doc(db, 'users', entry.userId);
       const authorSnap = await getDoc(authorRef);
@@ -1468,7 +1565,7 @@ export async function voteForChallengeEntry(
         await setDoc(
           authorRef,
           {
-            points: (u.points || 0) + 50,
+            points: (u.points || 0) + pointsPerVote,
             votes: (u.votes || 0) + 1,
             updatedAt: new Date().toISOString(),
           },
@@ -1479,7 +1576,7 @@ export async function voteForChallengeEntry(
 
     return {
       success: true,
-      message: `Vote counted for @${entry.discordUser}! (+1 Vote)`,
+      message: `Vote counted for @${entry.discordUser}! (+1 Vote, +${pointsPerVote.toLocaleString()} PTS)`,
     };
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, `challengeEntries/${entryId}`);
@@ -1628,6 +1725,117 @@ export async function loginOrCreateCommunityPlayer(
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, `users/${cleanUid}`);
     throw err;
+  }
+}
+
+// Password-Protected Community Account Authentication
+export async function loginOrCreateCommunityPlayerWithPassword(
+  discordUser: string,
+  passwordInput: string,
+  displayName?: string,
+  photoURL?: string
+): Promise<{ success: boolean; profile?: UserProfile; error?: string }> {
+  const cleanDiscord = discordUser.trim().replace(/^@/, '');
+  if (!cleanDiscord) {
+    return { success: false, error: 'Please enter a valid Discord username or handle.' };
+  }
+  if (!passwordInput || !passwordInput.trim()) {
+    return { success: false, error: 'Please enter your account password.' };
+  }
+
+  const cleanUid = `player_${cleanDiscord.toLowerCase().replace(/[^a-z0-9_]/g, '')}`;
+  const now = new Date().toISOString();
+  const userRef = doc(db, 'users', cleanUid);
+
+  try {
+    const snap = await getDoc(userRef);
+    if (snap.exists()) {
+      const existing = snap.data() as UserProfile;
+      // If user already set a password, verify it
+      if (existing.accountPassword && existing.accountPassword !== passwordInput.trim()) {
+        return {
+          success: false,
+          error: `Incorrect password for @${cleanDiscord}. Please check your password and try again.`,
+        };
+      }
+
+      // Update password & login
+      const updated: UserProfile = {
+        ...existing,
+        discordUser: cleanDiscord,
+        discordUsername: cleanDiscord,
+        accountPassword: passwordInput.trim(),
+        displayName: displayName || existing.displayName || cleanDiscord,
+        photoURL: photoURL || existing.photoURL || null,
+        updatedAt: now,
+      };
+      await setDoc(userRef, updated, { merge: true });
+      return { success: true, profile: updated };
+    } else {
+      // Create new account with password
+      const newProfile: UserProfile = {
+        uid: cleanUid,
+        email: null,
+        displayName: displayName || cleanDiscord,
+        discordUser: cleanDiscord,
+        discordUsername: cleanDiscord,
+        accountPassword: passwordInput.trim(),
+        points: 1000, // Welcome gift of 1,000 points!
+        votes: 0,
+        photoURL: photoURL || null,
+        reactedNewspaperIds: [],
+        votedUserIds: [],
+        lastVotedMap: {},
+        tickets: [],
+        assignedCodes: [],
+        createdAt: now,
+        updatedAt: now,
+      };
+      await setDoc(userRef, newProfile);
+      return { success: true, profile: newProfile };
+    }
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, `users/${cleanUid}`);
+    return { success: false, error: 'Connection error logging into player account.' };
+  }
+}
+
+// -------------------------------------------------------------
+// 10. REAL-TIME VOTING CONFIG & POINTS PER VOTE
+// -------------------------------------------------------------
+
+export interface VotingConfig {
+  pointsPerVote: number;
+}
+
+export function subscribeVotingConfig(callback: (config: VotingConfig) => void): () => void {
+  const configRef = doc(db, 'system', 'votingConfig');
+  return onSnapshot(
+    configRef,
+    (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        callback({ pointsPerVote: Math.max(1, Number(data.pointsPerVote) || 1000) });
+      } else {
+        // Default 1000 points per vote
+        callback({ pointsPerVote: 1000 });
+      }
+    },
+    (err) => {
+      handleFirestoreError(err, OperationType.GET, 'system/votingConfig');
+      callback({ pointsPerVote: 1000 });
+    }
+  );
+}
+
+export async function setPointsPerVoteInFirestore(points: number): Promise<boolean> {
+  const safePoints = Math.max(1, Math.round(Number(points) || 1000));
+  try {
+    await setDoc(doc(db, 'system', 'votingConfig'), { pointsPerVote: safePoints }, { merge: true });
+    return true;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, 'system/votingConfig');
+    return false;
   }
 }
 

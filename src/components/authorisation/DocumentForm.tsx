@@ -33,6 +33,14 @@ export const DocumentForm: React.FC<DocumentFormProps> = ({
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    const MAX_25MB = 25 * 1024 * 1024;
+    if (file.size > MAX_25MB) {
+      alert('File size exceeds 25MB limit. Please select a file under 25MB.');
+      e.target.value = '';
+      return;
+    }
+
     const reader = new FileReader();
     reader.onload = (ev) => {
       const dataUrl = ev.target?.result as string;

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { UserProfile, voteForUser } from '../../services/firestoreStorage.ts';
+import { UserProfile, voteForUser, subscribeVotingConfig } from '../../services/firestoreStorage.ts';
 import {
   Trophy,
   Award,
@@ -27,6 +27,14 @@ export const CommunityLeaderboardSection: React.FC<CommunityLeaderboardSectionPr
 }) => {
   const [votingTargetId, setVotingTargetId] = useState<string | null>(null);
   const [voteFeedback, setVoteFeedback] = useState<string | null>(null);
+  const [pointsPerVote, setPointsPerVote] = useState<number>(1000);
+
+  React.useEffect(() => {
+    const unsub = subscribeVotingConfig((config) => {
+      setPointsPerVote(config.pointsPerVote);
+    });
+    return () => unsub();
+  }, []);
 
   const handleVote = async (targetUser: UserProfile) => {
     if (!currentUser) {
@@ -82,7 +90,8 @@ export const CommunityLeaderboardSection: React.FC<CommunityLeaderboardSectionPr
             Official Community Leaderboard
           </h3>
           <p className="text-xs text-neutral-400 max-w-xl">
-            Ranked by points balance and community votes. Gain +1,000 points by reacting to broadsheets, getting voted by other players, and claiming points codes!
+            Ranked by points balance and community votes. Each vote awards{' '}
+            <strong className="text-amber-300 font-mono">+{pointsPerVote.toLocaleString()} PTS</strong> to the player!
           </p>
         </div>
 
@@ -223,7 +232,7 @@ export const CommunityLeaderboardSection: React.FC<CommunityLeaderboardSectionPr
                         ? 'Voted ✓'
                         : isSelf
                         ? 'Your Profile'
-                        : '+1 Vote (+1,000 Pts)'}
+                        : `+1 Vote (+${pointsPerVote.toLocaleString()} Pts)`}
                     </span>
                   </button>
                 </div>

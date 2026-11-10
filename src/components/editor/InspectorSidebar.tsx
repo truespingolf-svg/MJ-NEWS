@@ -68,10 +68,17 @@ export const InspectorSidebar: React.FC<InspectorSidebarProps> = ({
     ? page.images[selectedImageSlot]
     : null;
 
-  // Handle local file upload
+  // Handle local file upload with max 25MB limit
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !selectedImageSlot) return;
+
+    const MAX_25MB = 25 * 1024 * 1024;
+    if (file.size > MAX_25MB) {
+      alert('File size exceeds 25MB limit. Please select a file under 25MB.');
+      e.target.value = '';
+      return;
+    }
 
     const reader = new FileReader();
     reader.onload = (event) => {
@@ -150,7 +157,7 @@ export const InspectorSidebar: React.FC<InspectorSidebarProps> = ({
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*"
+                accept="image/*,.png,.jpg,.jpeg,.webp,.gif,.svg,.pdf,.docx,.txt"
                 onChange={handleFileUpload}
                 className="hidden"
               />

@@ -48,13 +48,21 @@ export const TicketInspector: React.FC<TicketInspectorProps> = ({
     });
   };
 
-  // Quick image upload handler
+  // Quick image upload handler with max 25MB limit
   const handleImageFile = (
     e: React.ChangeEvent<HTMLInputElement>,
     key: 'logoUrl' | 'backgroundImageUrl' | 'customQrImageUrl'
   ) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    const MAX_25MB = 25 * 1024 * 1024;
+    if (file.size > MAX_25MB) {
+      alert('File size exceeds 25MB limit. Please select a file under 25MB.');
+      e.target.value = '';
+      return;
+    }
+
     const reader = new FileReader();
     reader.onload = (ev) => {
       const dataUrl = ev.target?.result as string;
