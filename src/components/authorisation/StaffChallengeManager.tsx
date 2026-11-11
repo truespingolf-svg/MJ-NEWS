@@ -151,24 +151,33 @@ export const StaffChallengeManager: React.FC = () => {
     await setChallengeStatusFirestore(challenge.id, newStatus);
   };
 
-  const handleDelete = async (challengeId: string) => {
-    if (confirm('Are you sure you want to delete this challenge and all its entries?')) {
-      await deleteChallengeFirestore(challengeId);
-      if (selectedChallengeId === challengeId) {
-        setSelectedChallengeId(null);
+  const handleDelete = async (challengeId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setIsCreating(true);
+    setStatusMsg({ type: null, text: '' });
+    try {
+      const ok = await deleteChallengeFirestore(challengeId);
+      if (ok) {
+        setStatusMsg({ type: 'success', text: '🏆 Contest deleted successfully from Firestore!' });
+        const remaining = challenges.filter((c) => c.id !== challengeId);
+        if (remaining.length > 0) {
+          setSelectedChallengeId(remaining[0].id);
+        } else {
+          setSelectedChallengeId(null);
+        }
+      } else {
+        setStatusMsg({ type: 'error', text: 'Failed to delete contest.' });
       }
+    } catch (err: any) {
+      setStatusMsg({ type: 'error', text: err?.message || 'Error deleting contest.' });
+    } finally {
+      setIsCreating(false);
     }
   };
 
   const handleDeclareWinner = async (challenge: CommunityChallenge, entry: ChallengeEntry) => {
-    if (
-      !confirm(
-        `Declare @${entry.discordUser} as the official winner of "${challenge.title}" and award them +${challenge.pointsReward.toLocaleString()} PTS?`
-      )
-    ) {
-      return;
-    }
-
+    setIsCreating(true);
+    setStatusMsg({ type: null, text: '' });
     try {
       const res = await declareChallengeWinnerFirestore(challenge.id, entry, challenge.pointsReward);
       if (res.success) {
@@ -180,10 +189,12 @@ export const StaffChallengeManager: React.FC = () => {
         });
         setStatusMsg({ type: 'success', text: res.message });
       } else {
-        setStatusMsg({ type: 'error', text: res.message });
+        setStatusMsg({ type: 'error', text: res.message || 'Failed to declare winner.' });
       }
     } catch (err: any) {
       setStatusMsg({ type: 'error', text: err?.message || 'Error declaring winner.' });
+    } finally {
+      setIsCreating(false);
     }
   };
 
@@ -445,10 +456,11 @@ export const StaffChallengeManager: React.FC = () => {
 
                   <button
                     onClick={() => handleDelete(activeChallenge.id)}
-                    className="p-1.5 rounded-xl bg-neutral-900 hover:bg-red-950/60 text-neutral-400 hover:text-red-400 border border-neutral-800 transition-colors"
-                    title="Delete Challenge"
+                    className="px-3 py-1.5 rounded-xl bg-red-950/70 hover:bg-red-900/90 text-red-300 border border-red-500/50 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                    title="Delete Challenge & Clear Entries"
                   >
-                    <Trash2 className="w-4 h-4" />
+                    <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                    <span>Delete Contest</span>
                   </button>
                 </div>
               </div>

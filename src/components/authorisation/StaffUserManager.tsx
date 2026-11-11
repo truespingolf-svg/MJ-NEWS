@@ -290,9 +290,6 @@ export const StaffUserManager: React.FC = () => {
   };
 
   const handleDeleteAccount = async (targetUid: string, name: string) => {
-    if (!window.confirm(`Are you sure you want to completely delete account "${name}"? This will wipe the account from the database so they can create a new one with the same details.`)) {
-      return;
-    }
     setIsSubmitting(true);
     try {
       const ok = await deleteUserAccountInFirestore(targetUid);
@@ -874,35 +871,62 @@ export const StaffUserManager: React.FC = () => {
               </p>
             </div>
 
-            <div className="grid grid-cols-2 gap-2 pt-2">
-              <button
-                onClick={() => handleAdjustPoints(1000)}
-                disabled={isSubmitting}
-                className="py-2.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 rounded-xl text-xs font-bold"
-              >
-                +1,000 Points
-              </button>
-              <button
-                onClick={() => handleAdjustPoints(5000)}
-                disabled={isSubmitting}
-                className="py-2.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 rounded-xl text-xs font-bold"
-              >
-                +5,000 Points
-              </button>
-              <button
-                onClick={() => handleAdjustPoints(-500)}
-                disabled={isSubmitting}
-                className="py-2.5 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 rounded-xl text-xs font-bold"
-              >
-                -500 Points
-              </button>
-              <button
-                onClick={() => handleAdjustPoints(-1000)}
-                disabled={isSubmitting}
-                className="py-2.5 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 rounded-xl text-xs font-bold"
-              >
-                -1,000 Points
-              </button>
+            {/* Custom Typed Points Input */}
+            <div className="space-y-2 pt-1 text-left">
+              <label className="block text-[11px] font-mono text-neutral-300">
+                Custom Points Adjustment (Type positive to add, negative to remove):
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  value={pointDelta}
+                  onChange={(e) => setPointDelta(Number(e.target.value))}
+                  placeholder="e.g. 2500 or -1500"
+                  className="flex-1 bg-neutral-950 border border-neutral-700 rounded-xl px-3 py-2 text-xs font-mono text-amber-300 focus:outline-none focus:border-amber-400"
+                />
+                <button
+                  type="button"
+                  onClick={() => handleAdjustPoints(pointDelta)}
+                  disabled={isSubmitting || !pointDelta}
+                  className="px-4 py-2 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 text-black font-bold text-xs rounded-xl shadow-md disabled:opacity-50"
+                >
+                  Apply Delta
+                </button>
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-neutral-800">
+              <span className="block text-[10px] font-mono text-neutral-500 mb-2">Quick Presets:</span>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => handleAdjustPoints(1000)}
+                  disabled={isSubmitting}
+                  className="py-2 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 rounded-xl text-xs font-bold"
+                >
+                  +1,000 PTS
+                </button>
+                <button
+                  onClick={() => handleAdjustPoints(5000)}
+                  disabled={isSubmitting}
+                  className="py-2 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 rounded-xl text-xs font-bold"
+                >
+                  +5,000 PTS
+                </button>
+                <button
+                  onClick={() => handleAdjustPoints(-500)}
+                  disabled={isSubmitting}
+                  className="py-2 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 rounded-xl text-xs font-bold"
+                >
+                  -500 PTS
+                </button>
+                <button
+                  onClick={() => handleAdjustPoints(-1000)}
+                  disabled={isSubmitting}
+                  className="py-2 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 rounded-xl text-xs font-bold"
+                >
+                  -1,000 PTS
+                </button>
+              </div>
             </div>
           </div>
         </div>

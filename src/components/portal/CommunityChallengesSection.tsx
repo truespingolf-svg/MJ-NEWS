@@ -15,6 +15,10 @@ import {
   Send,
   X,
   ImageIcon,
+  Maximize2,
+  Eye,
+  Clock,
+  Award,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import {
@@ -53,6 +57,12 @@ export const CommunityChallengesSection: React.FC<CommunityChallengesSectionProp
     message: '',
   });
 
+  // Lightbox Zoom Modal
+  const [zoomImage, setZoomImage] = useState<{ url: string; caption: string; user: string } | null>(null);
+
+  // Filter & Sorting state
+  const [sortMode, setSortMode] = useState<'votes' | 'recent'>('votes');
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Real-time voting config state
@@ -70,7 +80,6 @@ export const CommunityChallengesSection: React.FC<CommunityChallengesSectionProp
     const unsub = subscribeChallenges((list) => {
       setChallenges(list);
       if (list.length > 0 && !activeChallengeId) {
-        // Prefer first active challenge
         const activeOne = list.find((c) => c.status === 'active') || list[0];
         setActiveChallengeId(activeOne.id);
       }
@@ -101,7 +110,7 @@ export const CommunityChallengesSection: React.FC<CommunityChallengesSectionProp
 
   const activeChallenge = challenges.find((c) => c.id === activeChallengeId);
 
-  // Handle local photo/document file upload & convert to base64 with max 25MB limit
+  // Handle local photo/document file upload (max 25MB)
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -110,7 +119,7 @@ export const CommunityChallengesSection: React.FC<CommunityChallengesSectionProp
     if (file.size > MAX_25MB) {
       setSubmitStatus({
         type: 'error',
-        message: 'File size exceeds 25MB limit. Please select a file under 25MB.',
+        message: 'File size exceeds 25MB limit. Please select an image under 25MB.',
       });
       return;
     }
@@ -127,14 +136,26 @@ export const CommunityChallengesSection: React.FC<CommunityChallengesSectionProp
     e.preventDefault();
     if (!activeChallengeId) return;
 
-    const cleanDiscord = (discordHandle.trim() || currentUser?.discordUser || currentUser?.discordUsername || '').replace(/^@/, '');
+    const cleanDiscord = (
+      discordHandle.trim() ||
+      currentUser?.discordUser ||
+      currentUser?.discordUsername ||
+      ''
+    ).replace(/^@/, '');
+
     if (!cleanDiscord) {
-      setSubmitStatus({ type: 'error', message: 'Please enter your Discord display name.' });
+      setSubmitStatus({
+        type: 'error',
+        message: 'Please enter your Discord username so your votes and bounty points can be recorded!',
+      });
       return;
     }
 
     if (!caption.trim()) {
-      setSubmitStatus({ type: 'error', message: 'Please write a caption or story for your submission.' });
+      setSubmitStatus({
+        type: 'error',
+        message: 'Please write a caption or headline description for your submission.',
+      });
       return;
     }
 
@@ -144,134 +165,160 @@ export const CommunityChallengesSection: React.FC<CommunityChallengesSectionProp
     try {
       const res = await submitChallengeEntryFirestore({
         challengeId: activeChallengeId,
-        userId: currentUser?.uid || `player_${cleanDiscord.toLowerCase().replace(/[^a-z0-9]/g, '')}`,
+        userId: currentUser?.uid || `guest-${cleanDiscord}`,
         discordUser: cleanDiscord,
         userDisplayName: currentUser?.displayName || cleanDiscord,
         userPhotoURL: currentUser?.photoURL || null,
         caption: caption.trim(),
-        imageUrl: imagePreview,
+        imageUrl: imagePreview || '',
       });
 
       if (res.success) {
-        confetti({
-          particleCount: 130,
-          spread: 80,
-          origin: { y: 0.6 },
-          colors: ['#EAB308', '#F59E0B', '#10B981', '#FFFFFF'],
-        });
+        try {
+          confetti({
+            particleCount: 120,
+            spread: 90,
+            origin: { y: 0.6 },
+            colors: ['#EF4444', '#F59E0B', '#EAB308', '#FFFFFF'],
+          });
+        } catch {
+          // ignore
+        }
 
         setSubmitStatus({
           type: 'success',
-          message: 'Entry submitted successfully! The community can now view and vote for you.',
+          message: 'Your entry has been submitted live! The community can now vote for you.',
         });
         setCaption('');
         setImagePreview('');
         setTimeout(() => {
           setShowSubmitModal(false);
           setSubmitStatus({ type: null, message: '' });
-        }, 2000);
+        }, 1800);
       } else {
-        setSubmitStatus({ type: 'error', message: res.error || 'Failed to submit entry.' });
+        setSubmitStatus({
+          type: 'error',
+          message: res.error || 'Failed to submit challenge entry. Please try again.',
+        });
       }
     } catch (err: any) {
-      console.error('Submission error:', err);
-      setSubmitStatus({ type: 'error', message: err?.message || 'Error uploading entry.' });
+      console.error('Failed to submit entry:', err);
+      setSubmitStatus({
+        type: 'error',
+        message: err?.message || 'Error uploading your submission. Please try again.',
+      });
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  // Upvote entry
   const handleVote = async (entry: ChallengeEntry) => {
-    const voterId = currentUser?.uid || `guest_${currentUser?.discordUser || 'voter'}`;
-    const voterDiscord = currentUser?.discordUser || currentUser?.discordUsername;
+    if (!currentUser) {
+      onRequireAuth();
+      return;
+    }
 
-    const res = await voteForChallengeEntry(entry.id, voterId, voterDiscord);
-    if (res.success) {
-      confetti({
-        particleCount: 60,
-        spread: 60,
-        origin: { y: 0.7 },
-        colors: ['#EF4444', '#F59E0B', '#FFFFFF'],
-      });
-    } else if (res.error) {
-      alert(res.error);
+    try {
+      const voterIdentifier = currentUser.uid;
+      const res = await voteForChallengeEntry(entry.id, voterIdentifier);
+
+      if (res.success) {
+        try {
+          confetti({
+            particleCount: 60,
+            spread: 60,
+            origin: { y: 0.7 },
+            colors: ['#EF4444', '#F43F5E', '#FB7185', '#FFFFFF'],
+          });
+        } catch {
+          // ignore
+        }
+      } else {
+        alert(res.message);
+      }
+    } catch (err: any) {
+      console.error('Vote failed:', err);
+      alert('Unable to process your vote right now. Please try again.');
     }
   };
 
-  if (challenges.length === 0) {
-    return null;
-  }
+  const sortedEntries = [...entries].sort((a, b) => {
+    if (sortMode === 'votes') {
+      return (b.votes || 0) - (a.votes || 0);
+    }
+    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+  });
+
+  const totalVotesAcrossChallenge = entries.reduce((acc, curr) => acc + (curr.votes || 0), 0);
 
   return (
-    <section className="space-y-6 select-none font-sans">
-      {/* Section Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-neutral-800 pb-4">
-        <div>
-          <h3 className="text-2xl font-serif font-black text-neutral-100 flex items-center gap-2.5">
-            <Trophy className="w-6 h-6 text-amber-400 animate-pulse-glow" />
-            <span>MJJ Fan Challenges &amp; Contests</span>
-          </h3>
-          <p className="text-xs text-neutral-400">
-            Upload your coolest Michael Jackson photos &amp; broadsheet headlines, vote on submissions, and win points bounties!
-          </p>
-        </div>
-
-        {/* Tab switcher for challenges */}
-        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
-          {challenges.map((ch) => (
+    <div className="space-y-10 select-none text-neutral-100 font-sans relative">
+      {/* Contest Selector Bar */}
+      <div className="flex items-center gap-3 overflow-x-auto no-scrollbar py-1">
+        <span className="text-xs font-mono uppercase text-neutral-400 font-bold tracking-wider shrink-0">
+          Contest:
+        </span>
+        {challenges.map((ch) => {
+          const isSelected = ch.id === activeChallengeId;
+          return (
             <button
               key={ch.id}
               onClick={() => setActiveChallengeId(ch.id)}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-medium whitespace-nowrap transition-all flex items-center gap-1.5 shrink-0 ${
-                activeChallengeId === ch.id
-                  ? 'bg-amber-500 text-black font-bold shadow-lg shadow-amber-500/20'
-                  : 'bg-neutral-900 text-neutral-300 hover:text-white border border-neutral-800'
+              className={`px-4 py-2 rounded-2xl text-xs font-mono font-bold tracking-wider transition-all flex items-center gap-2 shrink-0 cursor-pointer ${
+                isSelected
+                  ? 'bg-gradient-to-r from-red-600 via-red-500 to-amber-600 text-white shadow-[0_0_20px_rgba(239,68,68,0.35)] scale-105'
+                  : 'bg-[#12080c] hover:bg-[#1a0e14] text-neutral-300 border border-red-950/80 hover:border-red-500/40'
               }`}
             >
               <span>{ch.title}</span>
-              {ch.status === 'active' ? (
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping shrink-0" />
-              ) : (
-                <span className="text-[9px] font-mono font-bold bg-neutral-800 px-1.5 py-0.2 rounded text-neutral-400">
-                  WINNER
-                </span>
-              )}
+              <span
+                className={`text-[9px] px-2 py-0.5 rounded-full font-bold ${
+                  ch.status === 'active'
+                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                    : 'bg-neutral-800 text-neutral-400'
+                }`}
+              >
+                {ch.status === 'active' ? 'LIVE' : 'CLOSED'}
+              </span>
             </button>
-          ))}
-        </div>
+          );
+        })}
       </div>
 
-      {activeChallenge && (
-        <div className="space-y-6">
-          {/* Active Challenge Hero Spotlight Card */}
-          <div className="bg-gradient-to-br from-[#151522] via-[#0d0d14] to-[#1a1a28] border border-amber-500/40 rounded-3xl p-6 sm:p-8 shadow-2xl relative overflow-hidden group">
-            <div className="absolute top-0 right-0 -mt-10 -mr-10 w-72 h-72 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
-            <div className="absolute inset-0 bg-[radial-gradient(#ffffff05_1px,transparent_1px)] [background-size:24px_24px] pointer-events-none" />
+      {activeChallenge ? (
+        <div className="space-y-8">
+          {/* Active Challenge Spotlight Stage */}
+          <div className="relative rounded-3xl overflow-hidden border border-red-950/80 bg-gradient-to-b from-[#14080c] via-[#0d0407] to-[#080204] p-6 sm:p-10 shadow-2xl">
+            {/* Dynamic Stage Light Beams */}
+            <div className="absolute top-0 right-1/4 w-96 h-96 bg-red-600/10 rounded-full blur-3xl pointer-events-none animate-pulse" />
+            <div className="absolute -bottom-10 left-1/4 w-80 h-80 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
 
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center relative z-10">
+            <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+              {/* Left Column: Challenge Overview & Bounties (8 Cols) */}
               <div className="lg:col-span-8 space-y-4">
-                <div className="flex flex-wrap items-center gap-2.5">
+                <div className="flex flex-wrap items-center gap-2">
                   <span
                     className={`text-[10px] font-mono font-bold uppercase px-3 py-1 rounded-full border ${
                       activeChallenge.status === 'active'
-                        ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40'
-                        : 'bg-neutral-800 text-neutral-300 border-neutral-700'
+                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                        : 'bg-neutral-800 text-neutral-400 border-neutral-700'
                     }`}
                   >
-                    {activeChallenge.status === 'active' ? '🟢 LIVE COMMUNITY CONTEST' : '🏁 CONTEST CONCLUDED'}
+                    {activeChallenge.status === 'active' ? '🟢 CONTEST ACTIVE' : '🏁 CONTEST COMPLETED'}
                   </span>
 
-                  <span className="text-[10px] font-mono font-black text-amber-300 bg-amber-500/20 border border-amber-500/40 px-3 py-1 rounded-full flex items-center gap-1 shadow-sm">
-                    <Trophy className="w-3.5 h-3.5 text-amber-400" />
-                    <span>WINNER BOUNTY: +{activeChallenge.pointsReward.toLocaleString()} PTS</span>
+                  <span className="text-[10px] font-mono font-black text-amber-300 bg-amber-500/20 border border-amber-500/40 px-3 py-1 rounded-full flex items-center gap-1">
+                    <Trophy className="w-3 h-3 text-amber-400" />
+                    <span>BOUNTY: +{activeChallenge.pointsReward.toLocaleString()} PTS</span>
                   </span>
 
-                  <span className="text-xs font-mono text-neutral-400">
-                    {entries.length} Submissions
+                  <span className="text-[10px] font-mono text-neutral-400 bg-neutral-900/80 px-2.5 py-1 rounded-full border border-neutral-800">
+                    +{pointsPerVote.toLocaleString()} PTS / Vote
                   </span>
                 </div>
 
-                <h2 className="text-2xl sm:text-3xl font-serif font-black text-white tracking-tight">
+                <h2 className="text-2xl sm:text-4xl font-serif font-black text-white tracking-tight">
                   {activeChallenge.title}
                 </h2>
 
@@ -279,130 +326,210 @@ export const CommunityChallengesSection: React.FC<CommunityChallengesSectionProp
                   {activeChallenge.description}
                 </p>
 
+                {/* Submit Entry Button */}
                 {activeChallenge.status === 'active' && (
-                  <div className="pt-2 flex flex-wrap items-center gap-3">
+                  <div className="pt-2">
                     <button
                       onClick={() => {
-                        setShowSubmitModal(true);
-                        setSubmitStatus({ type: null, message: '' });
+                        if (!currentUser) onRequireAuth();
+                        else setShowSubmitModal(true);
                       }}
-                      className="px-6 py-3 rounded-2xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-black font-bold text-xs uppercase tracking-wider shadow-xl shadow-amber-500/25 transition-all flex items-center gap-2 transform hover:-translate-y-0.5 active:translate-y-0 cursor-pointer"
+                      className="px-6 py-3.5 rounded-2xl bg-gradient-to-r from-red-600 via-red-500 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white font-bold text-sm shadow-xl shadow-red-950/60 transition-all flex items-center gap-2.5 cursor-pointer transform hover:-translate-y-0.5 active:translate-y-0"
                     >
-                      <Camera className="w-4 h-4 stroke-[2.5]" />
-                      <span>Upload &amp; Submit Entry</span>
+                      <Plus className="w-4 h-4 stroke-[3]" />
+                      <span>SUBMIT YOUR PHOTO / ENTRY (MAX 25MB)</span>
                     </button>
-
-                    <div className="text-xs text-neutral-400 flex items-center gap-1.5 font-mono">
-                      <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                      <span>Your Discord handle will display on your entry</span>
-                    </div>
                   </div>
                 )}
               </div>
 
-              {/* Contest Rules or Winner Showcase Highlight */}
+              {/* Right Column: Winner Showcase or Contest Stats (4 Cols) */}
               <div className="lg:col-span-4 flex justify-center">
                 {activeChallenge.winnerDiscord ? (
-                  <div className="w-full bg-[#111119] border-2 border-amber-400/80 rounded-2xl p-5 space-y-3 shadow-2xl relative text-center">
-                    <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-amber-500 to-yellow-300 text-black flex items-center justify-center mx-auto text-xl shadow-lg">
+                  <div className="w-full bg-[#160b10] border-2 border-amber-400/80 rounded-2xl p-6 space-y-3 shadow-2xl relative text-center">
+                    <div className="w-14 h-14 rounded-full bg-gradient-to-tr from-amber-500 via-yellow-400 to-amber-600 text-black flex items-center justify-center mx-auto text-2xl shadow-lg animate-bounce">
                       👑
                     </div>
                     <div>
                       <span className="text-[10px] font-mono font-bold text-amber-400 uppercase tracking-widest block">
-                        OFFICIAL CONTEST WINNER
+                        OFFICIAL CONTEST CHAMPION
                       </span>
-                      <h4 className="text-lg font-serif font-black text-white">
+                      <h4 className="text-xl font-serif font-black text-white mt-1">
                         @{activeChallenge.winnerDiscord}
                       </h4>
-                      <p className="text-xs text-neutral-300 italic mt-1 line-clamp-2">
-                        "{activeChallenge.winnerCaption || 'Grand Champion Submission'}"
+                      <p className="text-xs text-neutral-300 italic mt-1.5 line-clamp-2">
+                        "{activeChallenge.winnerCaption || 'Winning entry'}"
                       </p>
                     </div>
 
-                    <div className="pt-2 border-t border-neutral-800">
-                      <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/30 inline-block">
+                    <div className="pt-3 border-t border-red-950">
+                      <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/30 inline-block">
                         +{activeChallenge.winnerPointsAwarded?.toLocaleString()} PTS WON
                       </span>
                     </div>
                   </div>
                 ) : (
-                  <div className="w-full bg-neutral-950/60 border border-neutral-800 rounded-2xl p-5 space-y-3 text-center">
-                    <div className="w-10 h-10 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center mx-auto">
-                      <Star className="w-5 h-5" />
+                  <div className="w-full bg-[#12080c] border border-red-950/80 rounded-2xl p-6 space-y-4 text-center">
+                    <div className="w-12 h-12 rounded-2xl bg-red-600/20 text-red-400 border border-red-500/30 flex items-center justify-center mx-auto">
+                      <Flame className="w-6 h-6 animate-pulse" />
                     </div>
-                    <h4 className="font-serif font-bold text-sm text-neutral-200">
-                      Community Vote Driven
-                    </h4>
-                    <p className="text-xs text-neutral-400 leading-relaxed">
-                      Every like adds +1 vote and earns you +50 points. Staff reviews all top voted submissions to declare the official bounty winner!
-                    </p>
+                    <div className="space-y-1">
+                      <h4 className="font-serif font-bold text-base text-white">
+                        Live Community Vote Battle
+                      </h4>
+                      <p className="text-xs text-neutral-400 leading-relaxed">
+                        Votes can be cast once every 5 hours. Every vote awards you points and propels your favorite entry toward victory!
+                      </p>
+                    </div>
+
+                    <div className="pt-3 border-t border-red-950/80 flex items-center justify-around text-center font-mono">
+                      <div>
+                        <span className="text-lg font-black text-amber-400">{entries.length}</span>
+                        <span className="text-[10px] text-neutral-500 uppercase block">Entries</span>
+                      </div>
+                      <div className="h-6 w-px bg-red-950" />
+                      <div>
+                        <span className="text-lg font-black text-red-400">
+                          {totalVotesAcrossChallenge}
+                        </span>
+                        <span className="text-[10px] text-neutral-500 uppercase block">Total Votes</span>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
             </div>
           </div>
 
-          {/* Submissions Gallery Grid */}
-          <div className="space-y-4">
-            <div className="flex items-center justify-between border-b border-neutral-800 pb-3">
-              <h4 className="text-sm font-mono font-bold uppercase tracking-wider text-amber-400 flex items-center gap-2">
-                <ImageIcon className="w-4 h-4" />
-                <span>Fan Submissions ({entries.length})</span>
-              </h4>
-              <span className="text-xs text-neutral-400 font-mono">
-                Click ❤️ to vote for your favorite
-              </span>
+          {/* Submissions Gallery & Live Podium */}
+          <div className="space-y-6">
+            {/* Gallery Toolbar & Sorting */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-red-950/80 pb-4">
+              <div className="flex items-center gap-3">
+                <ImageIcon className="w-5 h-5 text-red-500" />
+                <h3 className="text-lg sm:text-xl font-serif font-black text-white uppercase tracking-wider">
+                  Community Submissions ({entries.length})
+                </h3>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-mono text-neutral-400">Sort by:</span>
+                <button
+                  onClick={() => setSortMode('votes')}
+                  className={`px-3 py-1 rounded-xl text-xs font-mono font-bold transition-all cursor-pointer ${
+                    sortMode === 'votes'
+                      ? 'bg-red-600/30 text-red-300 border border-red-500/50'
+                      : 'bg-neutral-900 text-neutral-400 border border-neutral-800'
+                  }`}
+                >
+                  🔥 Most Votes
+                </button>
+                <button
+                  onClick={() => setSortMode('recent')}
+                  className={`px-3 py-1 rounded-xl text-xs font-mono font-bold transition-all cursor-pointer ${
+                    sortMode === 'recent'
+                      ? 'bg-red-600/30 text-red-300 border border-red-500/50'
+                      : 'bg-neutral-900 text-neutral-400 border border-neutral-800'
+                  }`}
+                >
+                  ⏱️ Latest
+                </button>
+              </div>
             </div>
 
             {isLoadingEntries ? (
-              <div className="p-12 text-center text-xs text-neutral-500 font-mono">
-                Loading community submissions...
+              <div className="p-16 text-center text-xs text-neutral-500 font-mono animate-pulse">
+                Loading live submissions &amp; voting tallies...
               </div>
-            ) : entries.length > 0 ? (
+            ) : sortedEntries.length > 0 ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                {entries.map((entry) => {
+                {sortedEntries.map((entry, index) => {
                   const isWinner = activeChallenge.winnerEntryId === entry.id;
                   const voterKey = currentUser?.uid?.toLowerCase() || '';
                   const hasVoted = voterKey && (entry.votedUserIds || []).includes(voterKey);
 
+                  // Podium rankings for top voted
+                  const isFirst = sortMode === 'votes' && index === 0;
+                  const isSecond = sortMode === 'votes' && index === 1;
+                  const isThird = sortMode === 'votes' && index === 2;
+
                   return (
                     <div
                       key={entry.id}
-                      className={`bg-neutral-900/90 border rounded-2xl overflow-hidden flex flex-col justify-between transition-all group ${
+                      className={`relative rounded-2xl overflow-hidden flex flex-col justify-between transition-all duration-300 group bg-[#11090d] border ${
                         isWinner
-                          ? 'border-amber-400 ring-2 ring-amber-400/50 shadow-2xl shadow-amber-500/20'
-                          : 'border-neutral-800 hover:border-amber-500/40 hover:shadow-xl'
+                          ? 'border-amber-400 ring-2 ring-amber-400/60 shadow-[0_0_30px_rgba(245,158,11,0.3)]'
+                          : isFirst
+                          ? 'border-amber-500/70 shadow-[0_0_20px_rgba(245,158,11,0.15)]'
+                          : 'border-red-950/80 hover:border-red-500/50 hover:shadow-xl'
                       }`}
                     >
-                      {/* Photo Thumbnail */}
+                      {/* Photo Thumbnail with Interactive Lightbox Zoom */}
                       {entry.imageUrl ? (
-                        <div className="aspect-[4/3] w-full bg-neutral-950 relative overflow-hidden">
+                        <div
+                          onClick={() =>
+                            setZoomImage({
+                              url: entry.imageUrl!,
+                              caption: entry.caption,
+                              user: entry.discordUser,
+                            })
+                          }
+                          className="aspect-[4/3] w-full bg-black relative overflow-hidden cursor-zoom-in group"
+                        >
                           <img
                             src={entry.imageUrl}
                             alt={entry.caption}
-                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                           />
-                          {isWinner && (
-                            <div className="absolute top-2 left-2 bg-amber-500 text-black font-black text-[10px] px-2.5 py-1 rounded-full uppercase tracking-wider shadow-lg flex items-center gap-1 font-mono">
-                              <Crown className="w-3 h-3 stroke-[3]" />
-                              <span>WINNER</span>
+
+                          {/* Hover Zoom Indicator */}
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                            <span className="px-3 py-1.5 rounded-full bg-black/80 border border-white/20 text-white text-xs font-mono font-bold flex items-center gap-1.5 shadow-xl">
+                              <Maximize2 className="w-3.5 h-3.5" />
+                              <span>View Full Size</span>
+                            </span>
+                          </div>
+
+                          {/* Podium Rank Badges */}
+                          {isFirst && (
+                            <div className="absolute top-3 left-3 bg-gradient-to-r from-amber-500 to-yellow-400 text-black font-black text-[10px] px-2.5 py-1 rounded-full uppercase tracking-wider shadow-lg flex items-center gap-1 font-mono">
+                              <Crown className="w-3.5 h-3.5 stroke-[3]" />
+                              <span>#1 LEADER</span>
                             </div>
                           )}
-                          <div className="absolute bottom-2 right-2 bg-black/80 backdrop-blur px-2.5 py-1 rounded-full text-[11px] font-mono text-amber-300 font-bold border border-amber-500/40 shadow">
+                          {isSecond && (
+                            <div className="absolute top-3 left-3 bg-neutral-300 text-black font-black text-[10px] px-2.5 py-1 rounded-full uppercase tracking-wider shadow-lg flex items-center gap-1 font-mono">
+                              <span>#2 SILVER</span>
+                            </div>
+                          )}
+                          {isThird && (
+                            <div className="absolute top-3 left-3 bg-amber-700 text-white font-black text-[10px] px-2.5 py-1 rounded-full uppercase tracking-wider shadow-lg flex items-center gap-1 font-mono">
+                              <span>#3 BRONZE</span>
+                            </div>
+                          )}
+
+                          {isWinner && (
+                            <div className="absolute top-3 right-3 bg-amber-400 text-black font-black text-[10px] px-2.5 py-1 rounded-full uppercase tracking-wider shadow-lg font-mono">
+                              CHAMPION
+                            </div>
+                          )}
+
+                          {/* Live Votes Counter Badge */}
+                          <div className="absolute bottom-3 right-3 bg-black/85 backdrop-blur px-3 py-1 rounded-full text-xs font-mono text-amber-300 font-bold border border-amber-500/40 shadow-lg">
                             ❤️ {entry.votes || 0} Votes
                           </div>
                         </div>
                       ) : (
-                        <div className="aspect-[4/3] w-full bg-neutral-950 flex items-center justify-center text-neutral-600">
-                          <Camera className="w-10 h-10 opacity-30" />
+                        <div className="aspect-[4/3] w-full bg-[#1a0e13] flex items-center justify-center text-neutral-600">
+                          <Camera className="w-12 h-12 opacity-30" />
                         </div>
                       )}
 
-                      {/* Info & Caption */}
-                      <div className="p-4 space-y-3 flex-1 flex flex-col justify-between">
-                        <div className="space-y-1.5">
+                      {/* Info, Caption & Interactive Upvote Action */}
+                      <div className="p-5 space-y-3.5 flex-1 flex flex-col justify-between">
+                        <div className="space-y-2">
                           <div className="flex items-center justify-between">
-                            <span className="text-xs font-black font-mono text-amber-300 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/30">
+                            <span className="text-xs font-mono font-bold text-amber-400 bg-amber-500/10 px-2.5 py-0.5 rounded-lg border border-amber-500/30">
                               @{entry.discordUser}
                             </span>
                             <span className="text-[10px] text-neutral-500 font-mono">
@@ -416,22 +543,22 @@ export const CommunityChallengesSection: React.FC<CommunityChallengesSectionProp
                         </div>
 
                         {/* Interactive Upvote Button */}
-                        <div className="pt-3 border-t border-neutral-800/80 flex items-center justify-between">
-                          <span className="text-[11px] font-mono text-neutral-400">
-                            {entry.votes || 0} {entry.votes === 1 ? 'Vote' : 'Votes'}
-                          </span>
+                        <div className="pt-3 border-t border-red-950/80 flex items-center justify-between">
+                          <div className="text-xs font-mono text-neutral-400">
+                            <span className="font-bold text-white">{entry.votes || 0}</span> votes
+                          </div>
 
                           <button
                             onClick={() => handleVote(entry)}
-                            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold font-mono transition-all flex items-center gap-1.5 ${
+                            className={`px-4 py-1.5 rounded-xl text-xs font-mono font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-md ${
                               hasVoted
-                                ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40 cursor-default'
-                                : 'bg-neutral-800 hover:bg-rose-500 hover:text-white text-neutral-300 border border-neutral-700 active:scale-95 cursor-pointer'
+                                ? 'bg-red-600/20 text-red-400 border border-red-500/40 cursor-default'
+                                : 'bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white transform hover:scale-105 active:scale-95'
                             }`}
-                            title={hasVoted ? 'You already voted for this entry' : 'Vote for this submission'}
+                            title={hasVoted ? 'You already voted for this entry' : 'Cast vote (1 vote per 5 hours)'}
                           >
-                            <Heart className={`w-3.5 h-3.5 ${hasVoted ? 'fill-rose-400 text-rose-400' : ''}`} />
-                            <span>{hasVoted ? 'Voted' : 'Vote'}</span>
+                            <Heart className={`w-3.5 h-3.5 ${hasVoted ? 'fill-red-400' : 'fill-white'}`} />
+                            <span>{hasVoted ? 'Voted' : 'Vote +PTS'}</span>
                           </button>
                         </div>
                       </div>
@@ -440,144 +567,185 @@ export const CommunityChallengesSection: React.FC<CommunityChallengesSectionProp
                 })}
               </div>
             ) : (
-              <div className="bg-neutral-900/40 border border-dashed border-neutral-800 rounded-3xl p-12 text-center space-y-3">
-                <Camera className="w-10 h-10 text-neutral-500 mx-auto" />
-                <h4 className="text-base font-serif font-bold text-neutral-300">
+              <div className="bg-[#12080c] border border-dashed border-red-950 rounded-3xl p-14 text-center space-y-4">
+                <Camera className="w-12 h-12 text-red-500/40 mx-auto" />
+                <h4 className="text-lg font-serif font-bold text-neutral-200">
                   Be the First to Enter This Challenge!
                 </h4>
-                <p className="text-xs text-neutral-500 max-w-sm mx-auto">
-                  Upload your photo or write your submission to start collecting community votes and compete for the bounty!
+                <p className="text-xs text-neutral-400 max-w-sm mx-auto leading-relaxed">
+                  Upload your vintage Michael Jackson photo, memorabilia, or custom edit to start collecting community votes and compete for the bounty!
                 </p>
                 {activeChallenge.status === 'active' && (
                   <button
-                    onClick={() => setShowSubmitModal(true)}
-                    className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs uppercase tracking-wider inline-flex items-center gap-2 mt-2 shadow-lg"
+                    onClick={() => {
+                      if (!currentUser) onRequireAuth();
+                      else setShowSubmitModal(true);
+                    }}
+                    className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-red-600 to-amber-600 text-white font-bold text-xs uppercase tracking-wider shadow-lg cursor-pointer"
                   >
-                    <Plus className="w-4 h-4" />
-                    <span>Upload Your Entry Now</span>
+                    Submit Entry
                   </button>
                 )}
               </div>
             )}
           </div>
         </div>
+      ) : (
+        <div className="bg-[#12080c] border border-red-950 rounded-3xl p-12 text-center text-xs text-neutral-500 font-mono">
+          No challenges active. Staff can launch new photo and journalism competitions from the Authorisation Centre.
+        </div>
       )}
 
-      {/* Submission Modal */}
-      {showSubmitModal && activeChallenge && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in">
-          <div className="bg-neutral-900 border border-amber-500/40 rounded-3xl max-w-lg w-full p-6 sm:p-8 space-y-6 shadow-2xl relative max-h-[90vh] overflow-y-auto">
+      {/* FULLSCREEN PHOTO LIGHTBOX MODAL */}
+      {zoomImage && (
+        <div
+          onClick={() => setZoomImage(null)}
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-xl animate-fade-in cursor-zoom-out"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="max-w-4xl w-full max-h-[90vh] flex flex-col items-center gap-4 bg-[#14080c] border border-red-950 rounded-3xl p-4 sm:p-6 shadow-2xl relative"
+          >
             <button
-              onClick={() => setShowSubmitModal(false)}
-              className="absolute top-4 right-4 text-neutral-400 hover:text-white text-xl p-1"
+              onClick={() => setZoomImage(null)}
+              className="absolute top-4 right-4 p-2 rounded-full bg-neutral-900 text-neutral-400 hover:text-white cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
 
-            <div className="text-center space-y-2">
-              <div className="w-12 h-12 rounded-2xl bg-amber-500/20 text-amber-400 border border-amber-500/40 flex items-center justify-center mx-auto shadow-inner">
+            <div className="w-full flex items-center justify-between border-b border-red-950 pb-3 pr-12">
+              <span className="font-mono text-sm font-bold text-amber-400">
+                @{zoomImage.user}
+              </span>
+              <span className="text-xs text-neutral-400 font-mono">High Resolution Viewer</span>
+            </div>
+
+            <div className="w-full max-h-[70vh] flex items-center justify-center overflow-hidden rounded-2xl bg-black">
+              <img
+                src={zoomImage.url}
+                alt=""
+                className="max-h-[70vh] max-w-full object-contain"
+              />
+            </div>
+
+            <p className="text-xs text-neutral-300 font-sans text-center max-w-xl">
+              "{zoomImage.caption}"
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* SUBMISSION UPLOAD MODAL (UP TO 25MB SUPPORT) */}
+      {showSubmitModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in">
+          <div className="bg-[#12080c] border border-red-500/40 rounded-3xl max-w-lg w-full p-6 sm:p-8 space-y-6 shadow-2xl relative max-h-[90vh] overflow-y-auto">
+            <button
+              onClick={() => setShowSubmitModal(false)}
+              className="absolute top-4 right-4 text-neutral-400 hover:text-white text-xl p-1 cursor-pointer"
+            >
+              ✕
+            </button>
+
+            <div className="text-center space-y-1.5">
+              <div className="w-12 h-12 rounded-2xl bg-red-600/20 border border-red-500/40 text-red-400 flex items-center justify-center mx-auto shadow-inner">
                 <Camera className="w-6 h-6" />
               </div>
-              <h3 className="text-xl font-serif font-black text-white">
-                Submit Challenge Entry
-              </h3>
-              <p className="text-xs text-neutral-400">
-                Contest: <span className="text-amber-300 font-bold">{activeChallenge.title}</span>
+              <h3 className="text-2xl font-serif font-black text-white">Submit Challenge Entry</h3>
+              <p className="text-xs text-neutral-400 max-w-sm mx-auto">
+                Upload your high-res vintage photo or written piece (max 25MB) to compete for the +{activeChallenge?.pointsReward.toLocaleString()} PTS bounty!
               </p>
             </div>
 
             <form onSubmit={handleSubmitEntry} className="space-y-4">
-              {/* Discord Handle (Always Shown) */}
               <div>
-                <label className="block text-xs font-mono uppercase text-neutral-300 mb-1">
-                  Your Discord Display Name <span className="text-amber-400">*</span>
+                <label className="block text-xs font-mono font-bold text-neutral-300 mb-1.5 uppercase">
+                  Your Discord Username <span className="text-red-400">*</span>
                 </label>
-                <div className="relative">
-                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-500 font-mono text-sm">
-                    @
-                  </span>
-                  <input
-                    type="text"
-                    value={discordHandle}
-                    onChange={(e) => setDiscordHandle(e.target.value)}
-                    placeholder="e.g. moonwalker_99"
-                    className="w-full pl-8 pr-4 py-2.5 rounded-xl bg-neutral-950 border border-neutral-700 text-white font-mono placeholder:text-neutral-600 focus:outline-none focus:border-amber-400 text-sm font-bold"
-                    required
-                  />
-                </div>
-                <p className="text-[10px] text-neutral-500 mt-1">
-                  This Discord username will display prominently on your entry card so players know who to vote for.
-                </p>
+                <input
+                  type="text"
+                  value={discordHandle}
+                  onChange={(e) => setDiscordHandle(e.target.value)}
+                  placeholder="e.g. moonwalker_88"
+                  className="w-full px-4 py-2.5 rounded-xl bg-neutral-950 border border-neutral-700 text-white font-mono placeholder:text-neutral-600 focus:outline-none focus:border-red-500 text-xs"
+                  required
+                />
               </div>
 
-              {/* Photo Upload or Image URL */}
               <div>
-                <label className="block text-xs font-mono uppercase text-neutral-300 mb-1">
-                  Upload Photo (Optional / Recommended)
-                </label>
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      className="px-4 py-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-white border border-neutral-700 text-xs font-semibold flex items-center gap-2"
-                    >
-                      <Upload className="w-3.5 h-3.5 text-amber-400" />
-                      <span>Choose Photo from Device</span>
-                    </button>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="image/*,.png,.jpg,.jpeg,.webp,.gif,.svg,.pdf,.docx,.txt"
-                      onChange={handleFileChange}
-                      className="hidden"
-                    />
-                    {imagePreview && (
-                      <button
-                        type="button"
-                        onClick={() => setImagePreview('')}
-                        className="text-xs text-rose-400 hover:underline"
-                      >
-                        Remove
-                      </button>
-                    )}
-                  </div>
-
-                  {imagePreview && (
-                    <div className="aspect-video w-full rounded-xl overflow-hidden border border-amber-500/40 relative">
-                      <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" />
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Caption / Story */}
-              <div>
-                <label className="block text-xs font-mono uppercase text-neutral-300 mb-1">
-                  Caption / Description <span className="text-amber-400">*</span>
+                <label className="block text-xs font-mono font-bold text-neutral-300 mb-1.5 uppercase">
+                  Caption / Story Headline <span className="text-red-400">*</span>
                 </label>
                 <textarea
                   rows={3}
                   value={caption}
                   onChange={(e) => setCaption(e.target.value)}
-                  placeholder="Tell the community about this photo, concert date, or your custom headline..."
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-neutral-950 border border-neutral-700 text-white placeholder:text-neutral-600 focus:outline-none focus:border-amber-400 text-xs leading-relaxed"
+                  placeholder="Describe your submission, era, concert tour, or historical context..."
+                  className="w-full px-4 py-2.5 rounded-xl bg-neutral-950 border border-neutral-700 text-white placeholder:text-neutral-600 focus:outline-none focus:border-red-500 text-xs font-sans leading-relaxed"
                   required
                 />
               </div>
 
+              {/* File Upload Drop Zone (Up to 25MB) */}
+              <div>
+                <label className="block text-xs font-mono font-bold text-neutral-300 mb-1.5 uppercase">
+                  Upload Photo / Memorabilia (Max 25MB)
+                </label>
+
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleFileChange}
+                  className="hidden"
+                />
+
+                {imagePreview ? (
+                  <div className="relative rounded-2xl overflow-hidden border border-red-500/50 aspect-video bg-black group">
+                    <img
+                      src={imagePreview}
+                      alt="Upload Preview"
+                      className="w-full h-full object-cover"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setImagePreview('');
+                        if (fileInputRef.current) fileInputRef.current.value = '';
+                      }}
+                      className="absolute top-2 right-2 p-1.5 rounded-full bg-black/80 text-white hover:bg-red-600 transition-colors"
+                      title="Remove image"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <div
+                    onClick={() => fileInputRef.current?.click()}
+                    className="border-2 border-dashed border-neutral-700 hover:border-red-500/60 rounded-2xl p-6 text-center cursor-pointer transition-colors bg-neutral-950/60 group"
+                  >
+                    <Upload className="w-8 h-8 text-neutral-500 group-hover:text-red-400 mx-auto transition-colors" />
+                    <p className="text-xs text-neutral-300 font-semibold mt-2">
+                      Click to browse or drop image file here
+                    </p>
+                    <p className="text-[10px] text-neutral-500 font-mono mt-1">
+                      PNG, JPG, WEBP, GIF up to 25MB
+                    </p>
+                  </div>
+                )}
+              </div>
+
               {submitStatus.message && (
                 <div
-                  className={`p-3.5 rounded-xl text-xs font-medium flex items-start gap-2 ${
+                  className={`p-3.5 rounded-xl text-xs font-medium flex items-start gap-2.5 ${
                     submitStatus.type === 'success'
                       ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
                       : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
                   }`}
                 >
                   {submitStatus.type === 'success' ? (
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                    <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400 mt-0.5" />
                   ) : (
-                    <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                    <AlertCircle className="w-4 h-4 shrink-0 text-rose-400 mt-0.5" />
                   )}
                   <span>{submitStatus.message}</span>
                 </div>
@@ -586,14 +754,14 @@ export const CommunityChallengesSection: React.FC<CommunityChallengesSectionProp
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-black font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20 transition-all disabled:opacity-50 cursor-pointer"
+                className="w-full py-3.5 rounded-xl bg-gradient-to-r from-red-600 via-red-500 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white font-bold text-xs uppercase tracking-wider shadow-xl shadow-red-950/60 transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
               >
                 {isSubmitting ? (
                   <span>Uploading to Contest...</span>
                 ) : (
                   <>
                     <Send className="w-4 h-4" />
-                    <span>Post Submission to Challenge</span>
+                    <span>Publish Submission to Community</span>
                   </>
                 )}
               </button>
@@ -601,6 +769,6 @@ export const CommunityChallengesSection: React.FC<CommunityChallengesSectionProp
           </div>
         </div>
       )}
-    </section>
+    </div>
   );
 };

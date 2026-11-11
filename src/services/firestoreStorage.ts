@@ -8,6 +8,7 @@ import {
   deleteDoc,
   onSnapshot,
   query,
+  where,
   orderBy,
   serverTimestamp,
 } from 'firebase/firestore';
@@ -15,6 +16,7 @@ import { db, auth } from '../firebase.ts';
 import type { User } from 'firebase/auth';
 import { NewspaperProject } from '../types/newspaper.ts';
 import { createNewProject, createInteriorPage } from '../utils/newspaperLogic.ts';
+import { processMediaForStorage } from './localMediaRegistry.ts';
 
 export enum OperationType {
   CREATE = 'create',
@@ -92,16 +94,8 @@ export function subscribeProjects(callback: (projects: NewspaperProject[]) => vo
     colRef,
     async (snapshot) => {
       if (snapshot.empty) {
-        // If Firestore projects collection is empty, seed starter project so all devices start with it
-        const starter = createStarterProject();
-        try {
-          await setDoc(doc(db, 'projects', starter.id), starter);
-          localStorage.setItem(LOCAL_STORAGE_BACKUP_KEY, JSON.stringify([starter]));
-          callback([starter]);
-        } catch (e) {
-          handleFirestoreError(e, OperationType.WRITE, 'projects/' + starter.id);
-          callback([starter]);
-        }
+        localStorage.setItem(LOCAL_STORAGE_BACKUP_KEY, JSON.stringify([]));
+        callback([]);
       } else {
         const list: NewspaperProject[] = [];
         snapshot.forEach((d) => {
@@ -122,8 +116,9 @@ export function subscribeProjects(callback: (projects: NewspaperProject[]) => vo
       try {
         const raw = localStorage.getItem(LOCAL_STORAGE_BACKUP_KEY);
         if (raw) callback(JSON.parse(raw));
+        else callback([]);
       } catch {
-        callback([createStarterProject()]);
+        callback([]);
       }
     }
   );
@@ -1167,21 +1162,68 @@ export async function deleteUserAccountInFirestore(targetUid: string): Promise<b
   }
 }
 
-// Staff Adjust User Points directly
+// Staff Adjust User Points directly (Supports positive addition or negative reduction)
 export async function adjustUserPoints(targetUid: string, pointDelta: number): Promise<boolean> {
   try {
+    if (!targetUid) return false;
     const userRef = doc(db, 'users', targetUid);
     const snap = await getDoc(userRef);
-    if (!snap.exists()) return false;
 
-    const user = snap.data() as UserProfile;
-    const currentPoints = user.points || 0;
-    const nextPoints = Math.max(0, currentPoints + pointDelta);
+    if (snap.exists()) {
+      const user = snap.data() as UserProfile;
+      const currentPoints = Number(user.points) || 0;
+      const nextPoints = Math.max(0, currentPoints + pointDelta);
 
+      await setDoc(
+        userRef,
+        {
+          points: nextPoints,
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+      return true;
+    }
+
+    // Fallback: search users by discord handle if targetUid is a handle like "kingofpop"
+    const usersSnap = await getDocs(collection(db, 'users'));
+    let matchedDocId: string | null = null;
+    let matchedUser: UserProfile | null = null;
+
+    for (const d of usersSnap.docs) {
+      const u = d.data() as UserProfile;
+      const handle = (u.discordUser || u.discordUsername || u.displayName || '').toLowerCase();
+      if (handle === targetUid.toLowerCase() || d.id === targetUid) {
+        matchedDocId = d.id;
+        matchedUser = u;
+        break;
+      }
+    }
+
+    if (matchedDocId && matchedUser) {
+      const currentPoints = Number(matchedUser.points) || 0;
+      const nextPoints = Math.max(0, currentPoints + pointDelta);
+      await setDoc(
+        doc(db, 'users', matchedDocId),
+        {
+          points: nextPoints,
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+      return true;
+    }
+
+    // If no user document exists yet, create user document directly
+    const initialPoints = Math.max(0, pointDelta);
     await setDoc(
       userRef,
       {
-        points: nextPoints,
+        uid: targetUid,
+        discordUser: targetUid,
+        displayName: targetUid,
+        points: initialPoints,
+        createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       },
       { merge: true }
@@ -1654,42 +1696,22 @@ export async function declareChallengeWinnerFirestore(
       { merge: true }
     );
 
-    // 2. Award points to winner user profile
-    let winnerCredited = false;
-    if (winnerEntry.userId) {
-      const userRef = doc(db, 'users', winnerEntry.userId);
-      const userSnap = await getDoc(userRef);
-      if (userSnap.exists()) {
-        const u = userSnap.data() as UserProfile;
-        await setDoc(
-          userRef,
-          {
-            points: (u.points || 0) + pointsReward,
-            updatedAt: now,
-          },
-          { merge: true }
-        );
-        winnerCredited = true;
-      }
+    // 2. Award points to winner user profile using robust adjustUserPoints
+    const winnerKey = winnerEntry.userId || winnerEntry.discordUser;
+    if (winnerKey) {
+      await adjustUserPoints(winnerKey, pointsReward);
     }
 
-    // Fallback: search users by discord handle if user wasn't credited directly by uid
-    if (!winnerCredited && winnerEntry.discordUser) {
-      const usersSnap = await getDocs(collection(db, 'users'));
-      for (const d of usersSnap.docs) {
-        const u = d.data() as UserProfile;
-        const uDiscord = (u.discordUser || u.discordUsername || '').toLowerCase();
-        if (uDiscord === winnerEntry.discordUser.toLowerCase()) {
-          await setDoc(
-            doc(db, 'users', d.id),
-            {
-              points: (u.points || 0) + pointsReward,
-              updatedAt: now,
-            },
-            { merge: true }
-          );
-          break;
-        }
+    // Dispatch direct inbox code/notification to winner
+    if (winnerKey) {
+      try {
+        await sendCodeToUser(winnerKey, {
+          code: `WINNER-${challengeId.slice(0, 6).toUpperCase()}`,
+          points: pointsReward,
+          customMessage: `🏆 CONTEST WINNER! You won the community challenge and were awarded +${pointsReward.toLocaleString()} PTS!`,
+        });
+      } catch {
+        // ignore notification error
       }
     }
 
@@ -1712,11 +1734,21 @@ export async function declareChallengeWinnerFirestore(
 
 // Delete challenge and its entries
 export async function deleteChallengeFirestore(challengeId: string): Promise<boolean> {
+  if (!challengeId) return false;
   try {
     await deleteDoc(doc(db, 'challenges', challengeId));
+    try {
+      const q = query(collection(db, 'challengeEntries'), where('challengeId', '==', challengeId));
+      const snap = await getDocs(q);
+      for (const d of snap.docs) {
+        await deleteDoc(doc(db, 'challengeEntries', d.id));
+      }
+    } catch {
+      // ignore entries query error if empty
+    }
     return true;
   } catch (err) {
-    handleFirestoreError(err, OperationType.WRITE, `challenges/${challengeId}`);
+    handleFirestoreError(err, OperationType.DELETE, `challenges/${challengeId}`);
     return false;
   }
 }
@@ -1882,5 +1914,573 @@ export async function setPointsPerVoteInFirestore(points: number): Promise<boole
     return false;
   }
 }
+
+// -------------------------------------------------------------
+// 11. NEWS ARTICLES PLATFORM
+// -------------------------------------------------------------
+
+export interface NewsArticle {
+  id: string;
+  headline: string;
+  shortDescription: string;
+  fullArticle: string;
+  mainImage: string;
+  additionalImages?: string[];
+  category: string;
+  publishedDate: string;
+  author: string;
+  authorRole?: string;
+  featured: boolean;
+  published: boolean;
+  readingTimeMinutes?: number;
+  tags?: string[];
+  viewsCount?: number;
+}
+
+export function subscribeNewsArticles(callback: (articles: NewsArticle[]) => void): () => void {
+  const colRef = collection(db, 'newsArticles');
+  return onSnapshot(
+    colRef,
+    (snap) => {
+      const list: NewsArticle[] = [];
+      snap.forEach((d) => {
+        list.push({ id: d.id, ...d.data() } as NewsArticle);
+      });
+      list.sort((a, b) => new Date(b.publishedDate || 0).getTime() - new Date(a.publishedDate || 0).getTime());
+      callback(list);
+    },
+    (err) => {
+      handleFirestoreError(err, OperationType.LIST, 'newsArticles');
+    }
+  );
+}
+
+export async function addNewsArticleFirestore(article: Omit<NewsArticle, 'id'>): Promise<boolean> {
+  const id = `news-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+  try {
+    const mainImage = await processMediaForStorage(article.mainImage, 'news_cover');
+    await setDoc(doc(db, 'newsArticles', id), {
+      ...article,
+      mainImage,
+      id,
+      publishedDate: article.publishedDate || new Date().toISOString(),
+      published: article.published !== false,
+      viewsCount: 0,
+    });
+    return true;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, `newsArticles/${id}`);
+    return false;
+  }
+}
+
+export async function updateNewsArticleFirestore(id: string, updates: Partial<NewsArticle>): Promise<boolean> {
+  try {
+    const cleanUpdates = { ...updates };
+    if (cleanUpdates.mainImage) {
+      cleanUpdates.mainImage = await processMediaForStorage(cleanUpdates.mainImage, 'news_cover');
+    }
+    await setDoc(doc(db, 'newsArticles', id), cleanUpdates, { merge: true });
+    return true;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, `newsArticles/${id}`);
+    return false;
+  }
+}
+
+export async function deleteNewsArticleFirestore(id: string): Promise<boolean> {
+  try {
+    await deleteDoc(doc(db, 'newsArticles', id));
+    return true;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, `newsArticles/${id}`);
+    return false;
+  }
+}
+
+// -------------------------------------------------------------
+// 12. EVENT COUNTDOWN & PROMOTIONAL STAGE CONFIGURATION
+// -------------------------------------------------------------
+
+export interface EventCountdownConfig {
+  eventTitle: string;
+  eventDescription: string;
+  backgroundImage: string;
+  eventDate: string; // YYYY-MM-DD
+  eventTime: string; // HH:mm
+  targetTimestamp: number; // Unix ms
+  countdownVisible: boolean;
+  imageBlur: number; // 0 to 20 px
+  overlayDarkness: number; // 0 to 100%
+  countdownStyle: 'cinematic-red' | 'metallic-silver' | 'royal-gold';
+  actionButtonText?: string;
+  actionButtonLink?: string;
+  eventLiveMessage?: string;
+}
+
+export function subscribeEventCountdownConfig(callback: (config: EventCountdownConfig) => void): () => void {
+  const docRef = doc(db, 'system', 'eventCountdown');
+  return onSnapshot(
+    docRef,
+    (snap) => {
+      if (snap.exists()) {
+        callback(snap.data() as EventCountdownConfig);
+      } else {
+        // High quality default countdown
+        const futureDate = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
+        callback({
+          eventTitle: 'THRILLER 45TH ANNIVERSARY • GLOBAL PRESS PREMIERE',
+          eventDescription: 'Worldwide holographic showcase and multi-track master release across major capitals. Exclusive press access and collector passes broadcast live from Los Angeles.',
+          backgroundImage: '/src/assets/images/event_countdown_backdrop_1794407119370.jpg',
+          eventDate: futureDate.toISOString().split('T')[0],
+          eventTime: '20:00',
+          targetTimestamp: futureDate.getTime(),
+          countdownVisible: true,
+          imageBlur: 2,
+          overlayDarkness: 65,
+          countdownStyle: 'cinematic-red',
+          actionButtonText: 'Reserve VIP Pass',
+          actionButtonLink: '#challenges',
+          eventLiveMessage: 'EVENT IS NOW BROADCASTING LIVE ON ALL MJJ RECORDS STATIONS',
+        });
+      }
+    },
+    (err) => {
+      handleFirestoreError(err, OperationType.GET, 'system/eventCountdown');
+    }
+  );
+}
+
+export async function setEventCountdownConfigInFirestore(config: Partial<EventCountdownConfig>): Promise<boolean> {
+  try {
+    const cleanConfig = { ...config };
+    if (cleanConfig.backgroundImage) {
+      cleanConfig.backgroundImage = await processMediaForStorage(cleanConfig.backgroundImage, 'event_backdrop');
+    }
+    await setDoc(doc(db, 'system', 'eventCountdown'), cleanConfig, { merge: true });
+    return true;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, 'system/eventCountdown');
+    return false;
+  }
+}
+
+// -------------------------------------------------------------
+// 13. STREAMING PLATFORM (RELEASES, PERFORMANCES & MASTER TRACKS)
+// -------------------------------------------------------------
+
+export interface StreamingTrack {
+  id: string;
+  title: string;
+  album: string;
+  era: 'Off The Wall' | 'Thriller' | 'Bad' | 'Dangerous' | 'HIStory' | 'Invincible' | 'Live Archive';
+  durationSeconds: number;
+  releaseYear: number;
+  coverImage: string;
+  mediaUrl: string; // audio or video URL
+  mediaType: 'audio' | 'video';
+  featured: boolean;
+  description: string;
+  playCount: number;
+  producer?: string;
+  lyricsSnippet?: string;
+  isPremiere?: boolean;
+  premiereTimestamp?: number; // Unix timestamp ms for premiere countdown
+}
+
+export function subscribeStreamingContent(callback: (tracks: StreamingTrack[]) => void): () => void {
+  const colRef = collection(db, 'streamingContent');
+  return onSnapshot(
+    colRef,
+    (snap) => {
+      const list: StreamingTrack[] = [];
+      snap.forEach((d) => {
+        list.push({ id: d.id, ...d.data() } as StreamingTrack);
+      });
+      callback(list);
+    },
+    (err) => {
+      handleFirestoreError(err, OperationType.LIST, 'streamingContent');
+    }
+  );
+}
+
+export async function addStreamingTrackFirestore(track: Omit<StreamingTrack, 'id'>): Promise<boolean> {
+  const id = `stream-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+  try {
+    const mediaUrl = await processMediaForStorage(track.mediaUrl, 'stream_media');
+    const coverImage = await processMediaForStorage(track.coverImage, 'stream_cover');
+    await setDoc(doc(db, 'streamingContent', id), {
+      ...track,
+      mediaUrl,
+      coverImage,
+      id,
+      playCount: 0,
+    });
+    return true;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, `streamingContent/${id}`);
+    return false;
+  }
+}
+
+export async function deleteStreamingTrackFirestore(id: string): Promise<boolean> {
+  try {
+    await deleteDoc(doc(db, 'streamingContent', id));
+    return true;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, `streamingContent/${id}`);
+    return false;
+  }
+}
+
+// -------------------------------------------------------------
+// 14. STAFF AUDIT LOGS & MANUAL VOTE AWARDS
+// -------------------------------------------------------------
+
+export interface StaffAuditLog {
+  id: string;
+  staffName: string;
+  staffRole: string;
+  actionType: 'AWARD_VOTES' | 'ADJUST_POINTS' | 'DELETE_USER' | 'UPDATE_COUNTDOWN' | 'MANAGE_CHALLENGE' | 'PUBLISH_NEWS' | 'LOCK_PORTAL';
+  targetEntityId: string;
+  targetEntityLabel: string;
+  details: string;
+  timestamp: string;
+}
+
+export function subscribeStaffAuditLogs(callback: (logs: StaffAuditLog[]) => void): () => void {
+  const colRef = collection(db, 'staffAuditLogs');
+  return onSnapshot(
+    colRef,
+    (snap) => {
+      const list: StaffAuditLog[] = [];
+      snap.forEach((d) => {
+        list.push({ id: d.id, ...d.data() } as StaffAuditLog);
+      });
+      list.sort((a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime());
+      callback(list);
+    },
+    (err) => {
+      handleFirestoreError(err, OperationType.LIST, 'staffAuditLogs');
+    }
+  );
+}
+
+export async function addStaffAuditLogFirestore(log: Omit<StaffAuditLog, 'id' | 'timestamp'>): Promise<boolean> {
+  const id = `audit-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+  try {
+    await setDoc(doc(db, 'staffAuditLogs', id), {
+      ...log,
+      id,
+      timestamp: new Date().toISOString(),
+    });
+    return true;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, `staffAuditLogs/${id}`);
+    return false;
+  }
+}
+
+// Award manual bonus votes to challenge entry with audit logging
+export async function awardStaffVotesToEntryFirestore(
+  entryId: string,
+  votesToAdd: number,
+  reason: string,
+  staffName: string = 'Staff Administrator'
+): Promise<{ success: boolean; message: string }> {
+  if (!entryId || votesToAdd <= 0) {
+    return { success: false, message: 'Invalid entry or vote amount.' };
+  }
+
+  try {
+    const entryRef = doc(db, 'challengeEntries', entryId);
+    const snap = await getDoc(entryRef);
+    if (!snap.exists()) {
+      return { success: false, message: 'Challenge entry not found.' };
+    }
+
+    const entry = snap.data() as ChallengeEntry;
+    const currentVotes = Number(entry.votes) || 0;
+    const newVotes = currentVotes + votesToAdd;
+
+    // Get points per vote
+    const configSnap = await getDoc(doc(db, 'system', 'votingConfig'));
+    const pointsPerVote = configSnap.exists()
+      ? Math.max(1, Number(configSnap.data().pointsPerVote) || 1000)
+      : 1000;
+    const pointsGained = votesToAdd * pointsPerVote;
+
+    // Update entry votes
+    await setDoc(entryRef, { votes: newVotes }, { merge: true });
+
+    // Award points to creator user profile if found
+    if (entry.userId) {
+      await adjustUserPoints(entry.userId, pointsGained);
+    }
+
+    // Add audit log
+    await addStaffAuditLogFirestore({
+      staffName,
+      staffRole: 'Administrator',
+      actionType: 'AWARD_VOTES',
+      targetEntityId: entryId,
+      targetEntityLabel: `@${entry.discordUser} (${entry.caption || 'Entry'})`,
+      details: `Awarded +${votesToAdd} manual votes (+${pointsGained.toLocaleString()} PTS). Reason: "${reason.trim() || 'Staff merit recognition'}"`,
+    });
+
+    return {
+      success: true,
+      message: `Successfully awarded +${votesToAdd} votes (+${pointsGained.toLocaleString()} PTS) to @${entry.discordUser}!`,
+    };
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, `challengeEntries/${entryId}`);
+    return { success: false, message: 'Failed to award votes.' };
+  }
+}
+
+// -------------------------------------------------------------
+// 15. DYNAMIC STAFF ROSTER MANAGEMENT
+// -------------------------------------------------------------
+
+export interface StaffMember {
+  id: string;
+  name: string;
+  position: string;
+  role: 'OWNER' | 'ADMINISTRATOR' | 'EDITOR' | 'CHALLENGE MANAGER' | 'STAFF' | 'MARKETING LEAD';
+  bio: string;
+  discordHandle?: string;
+  avatarUrl: string;
+  department: string;
+  order?: number;
+}
+
+const DEFAULT_STAFF_MEMBERS: StaffMember[] = [
+  {
+    id: 'staff-1',
+    name: 'Executive Management',
+    position: 'Chief Executive & Label Director',
+    role: 'OWNER',
+    bio: 'Oversees the global multimedia legacy, multi-track archival preservation, world concert streaming rights, and executive operations for MJJ Records.',
+    discordHandle: 'mjj_executive',
+    avatarUrl: '/src/assets/images/hero_mj_cinematic_stage_1794407118726.jpg',
+    department: 'Executive Board',
+    order: 1,
+  },
+  {
+    id: 'staff-2',
+    name: 'Marcus Vance',
+    position: 'Archival Director & Master Audio Engineer',
+    role: 'ADMINISTRATOR',
+    bio: 'Curates 2-inch multi-track master tapes, Westlake Audio console restorations, 4K film transfers, and studio disc remasters from the golden Thriller and Bad eras.',
+    discordHandle: 'vance_archival',
+    avatarUrl: '/src/assets/images/streaming_thriller_vinyl_1794407118068.jpg',
+    department: 'Sound & Restoration',
+    order: 2,
+  },
+  {
+    id: 'staff-3',
+    name: 'Elena Rostova',
+    position: 'Creative Director & Visual Design Lead',
+    role: 'EDITOR',
+    bio: 'Directs theatrical stage lighting design, promotional poster art, collector vinyl packaging, and global digital aesthetic presentation.',
+    discordHandle: 'elena_mjj_creative',
+    avatarUrl: '/src/assets/images/event_countdown_backdrop_1794407119370.jpg',
+    department: 'Creative & Visuals',
+    order: 3,
+  },
+  {
+    id: 'staff-4',
+    name: 'Jordan Miller',
+    position: 'Global Community Director & Contest Arbiter',
+    role: 'CHALLENGE MANAGER',
+    bio: 'Coordinates community competitions, photo challenges, trophy leaderboards, Discord points rewards, and voter moderation across all events.',
+    discordHandle: 'jordan_contests',
+    avatarUrl: '/src/assets/images/streaming_bad_tour_live_1794407119769.jpg',
+    department: 'Community Operations',
+    order: 4,
+  },
+];
+
+export function subscribeStaffMembers(callback: (staff: StaffMember[]) => void): () => void {
+  const colRef = collection(db, 'staffMembers');
+  return onSnapshot(
+    colRef,
+    (snap) => {
+      if (snap.empty) {
+        callback(DEFAULT_STAFF_MEMBERS);
+      } else {
+        const list: StaffMember[] = [];
+        snap.forEach((d) => list.push({ id: d.id, ...d.data() } as StaffMember));
+        list.sort((a, b) => (a.order || 99) - (b.order || 99));
+        callback(list);
+      }
+    },
+    () => {
+      callback(DEFAULT_STAFF_MEMBERS);
+    }
+  );
+}
+
+export async function saveStaffMemberFirestore(member: StaffMember): Promise<boolean> {
+  const id = member.id || `staff-${Date.now()}`;
+  try {
+    await setDoc(doc(db, 'staffMembers', id), { ...member, id }, { merge: true });
+    return true;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, `staffMembers/${id}`);
+    return false;
+  }
+}
+
+export async function deleteStaffMemberFirestore(id: string): Promise<boolean> {
+  try {
+    await deleteDoc(doc(db, 'staffMembers', id));
+    return true;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, `staffMembers/${id}`);
+    return false;
+  }
+}
+
+// -------------------------------------------------------------
+// 16. SITE BACKGROUND AUDIO & ENTRANCE THEME CONFIG
+// -------------------------------------------------------------
+
+export interface SiteAudioSettings {
+  entrySongUrl: string;
+  entrySongTitle: string;
+  autoplayEnabled: boolean;
+}
+
+export function subscribeSiteAudioSettings(callback: (settings: SiteAudioSettings) => void): () => void {
+  const docRef = doc(db, 'system', 'siteAudioSettings');
+  return onSnapshot(
+    docRef,
+    (snap) => {
+      if (snap.exists()) {
+        callback(snap.data() as SiteAudioSettings);
+      } else {
+        callback({
+          entrySongUrl: '/assets/aistudio/THRILLER_AUDIO_IDEA_533b2f46.mp3',
+          entrySongTitle: 'Thriller (Official Studio Master)',
+          autoplayEnabled: true,
+        });
+      }
+    },
+    () => {
+      callback({
+        entrySongUrl: '/assets/aistudio/THRILLER_AUDIO_IDEA_533b2f46.mp3',
+        entrySongTitle: 'Thriller (Official Studio Master)',
+        autoplayEnabled: true,
+      });
+    }
+  );
+}
+
+export async function setSiteAudioSettingsFirestore(settings: Partial<SiteAudioSettings>): Promise<boolean> {
+  try {
+    const cleanSettings = { ...settings };
+    if (cleanSettings.entrySongUrl) {
+      cleanSettings.entrySongUrl = await processMediaForStorage(cleanSettings.entrySongUrl, 'site_entrance_audio');
+    }
+    await setDoc(doc(db, 'system', 'siteAudioSettings'), cleanSettings, { merge: true });
+    return true;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, 'system/siteAudioSettings');
+    return false;
+  }
+}
+
+// -------------------------------------------------------------
+// 17. ASSIGN APPLICANT ROLE & SEND CUSTOM NOTIFICATION
+// -------------------------------------------------------------
+
+export async function assignApplicantRoleAndNotifyFirestore(
+  applicantDiscord: string,
+  newRole: string,
+  customNotificationMessage: string,
+  staffActor: string = 'Staff Executive'
+): Promise<{ success: boolean; message: string }> {
+  if (!applicantDiscord.trim()) {
+    return { success: false, message: 'Discord username is required.' };
+  }
+
+  const cleanDiscord = applicantDiscord.trim().replace(/^@/, '');
+
+  try {
+    // 1. Locate user in community users by discordUser or discordUsername
+    const usersCol = collection(db, 'users');
+    const snap = await getDocs(usersCol);
+    let targetDocId: string | null = null;
+    let targetProfile: UserProfile | null = null;
+
+    snap.forEach((d) => {
+      const p = d.data() as UserProfile;
+      const uDiscord = (p.discordUser || p.discordUsername || '').replace(/^@/, '');
+      if (uDiscord.toLowerCase() === cleanDiscord.toLowerCase()) {
+        targetDocId = d.id;
+        targetProfile = p;
+      }
+    });
+
+    const notifItem = {
+      id: `notif-${Date.now()}`,
+      title: `Staff Role Assigned: ${newRole}`,
+      message: customNotificationMessage.trim() || `Congratulations! You have been granted the ${newRole} role at MJJ Records.`,
+      date: new Date().toISOString(),
+      type: 'invite' as const,
+      read: false,
+    };
+
+    if (targetDocId && targetProfile) {
+      const existingNotifs = (targetProfile as any).notifications || [];
+      await setDoc(
+        doc(db, 'users', targetDocId),
+        {
+          role: newRole,
+          notifications: [notifItem, ...existingNotifs],
+        },
+        { merge: true }
+      );
+    } else {
+      // If user doc doesn't exist yet, create a pending notification doc keyed by discord username
+      const pendingDocRef = doc(db, 'users', `discord-${cleanDiscord.toLowerCase()}`);
+      await setDoc(
+        pendingDocRef,
+        {
+          uid: `discord-${cleanDiscord.toLowerCase()}`,
+          displayName: cleanDiscord,
+          discordUser: cleanDiscord,
+          discordUsername: cleanDiscord,
+          role: newRole,
+          points: 1000,
+          notifications: [notifItem],
+          createdAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+    }
+
+    // Add Audit Log
+    await addStaffAuditLogFirestore({
+      staffName: staffActor,
+      staffRole: 'ADMINISTRATOR',
+      actionType: 'ADJUST_POINTS',
+      targetEntityId: cleanDiscord,
+      targetEntityLabel: `@${cleanDiscord}`,
+      details: `Assigned role "${newRole}" and dispatched custom notification: "${customNotificationMessage.slice(0, 80)}..."`,
+    });
+
+    return {
+      success: true,
+      message: `Role "${newRole}" successfully assigned to @${cleanDiscord} and notification delivered!`,
+    };
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, `users/role-${cleanDiscord}`);
+    return { success: false, message: 'Failed to assign role and dispatch notification.' };
+  }
+}
+
 
 

@@ -96,6 +96,7 @@ export const AuthSignInModal: React.FC<AuthSignInModalProps> = ({
       );
 
       if (res.success && res.profile) {
+        localStorage.setItem('mjj_active_player_uid', res.profile.uid);
         confetti({
           particleCount: 120,
           spread: 80,

@@ -174,26 +174,14 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         </div>
 
-        {/* AI Broadsheet Copilot Button */}
-        {onOpenAiModal && (
-          <button
-            onClick={onOpenAiModal}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg border border-amber-500/40 bg-neutral-900 text-amber-300 hover:bg-neutral-800 transition-colors shadow-sm whitespace-nowrap min-h-[36px]"
-            title="Ask AI Copilot to research facts with Google Search and generate broadsheets"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-            <span>AI Copilot</span>
-          </button>
-        )}
-
         {/* 3D Flipbook Preview Button */}
         {onOpenFlipbookPreview && (
           <button
             onClick={onOpenFlipbookPreview}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg border border-amber-500/40 bg-neutral-900 text-amber-300 hover:bg-neutral-800 transition-colors shadow-sm whitespace-nowrap min-h-[36px]"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg border border-red-500/40 bg-red-950/80 text-red-300 hover:bg-red-900/80 transition-colors shadow-sm whitespace-nowrap min-h-[36px]"
             title="Preview Newspaper in 3D Flipbook Mode"
           >
-            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+            <Sparkles className="w-3.5 h-3.5 text-red-400" />
             <span>3D Flipbook Preview</span>
           </button>
         )}
@@ -202,7 +190,7 @@ export const Header: React.FC<HeaderProps> = ({
         {onOpenPublishModal && (
           <button
             onClick={onOpenPublishModal}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-black rounded-lg bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-black shadow-md transition-all font-sans whitespace-nowrap min-h-[36px]"
+            className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-black rounded-lg bg-gradient-to-r from-red-600 via-rose-600 to-red-700 hover:from-red-500 hover:to-rose-500 text-white shadow-md transition-all font-sans whitespace-nowrap min-h-[36px]"
             title="Publish this broadsheet to the public portal with broadcast timer"
           >
             <Sparkles className="w-3.5 h-3.5" />
@@ -214,19 +202,19 @@ export const Header: React.FC<HeaderProps> = ({
         <button
           onClick={onPrintClick}
           aria-label="Print Broadsheet"
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-neutral-800 bg-neutral-900 text-neutral-300 hover:text-white hover:bg-neutral-800 transition-colors whitespace-nowrap min-h-[36px]"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-red-950 bg-[#14080b] text-neutral-300 hover:text-white hover:bg-[#200a10] transition-colors whitespace-nowrap min-h-[36px]"
           title="Print / Save as PDF via Browser"
         >
-          <Printer className="w-3.5 h-3.5 text-amber-400" />
+          <Printer className="w-3.5 h-3.5 text-red-400" />
           <span>Print</span>
         </button>
 
-        {/* DOWNLOAD PDF BUTTON (DOWNLOADS STRAIGHT) */}
+        {/* DOWNLOAD PDF BUTTON */}
         <button
           onClick={onDownloadPdfStraight}
           disabled={isExportingPdf}
           aria-label="Download PDF"
-          className="flex items-center gap-2 px-4 py-1.5 text-xs font-bold bg-amber-400 hover:bg-amber-300 disabled:opacity-75 text-black rounded-lg shadow-md transition-all font-sans whitespace-nowrap min-h-[36px]"
+          className="flex items-center gap-2 px-4 py-1.5 text-xs font-bold bg-gradient-to-r from-red-600 to-amber-600 hover:from-red-500 hover:to-amber-500 disabled:opacity-75 text-white rounded-lg shadow-md transition-all font-sans whitespace-nowrap min-h-[36px]"
         >
           <Download className="w-3.5 h-3.5 stroke-[2.5]" />
           <span>{isExportingPdf ? (exportProgressText || 'Downloading PDF...') : 'DOWNLOAD PDF'}</span>

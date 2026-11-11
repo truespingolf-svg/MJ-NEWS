@@ -105,11 +105,9 @@ export const StaffPublishingManager: React.FC<StaffPublishingManagerProps> = ({
   }, []);
 
   const handleDeletePublishedArchiveDoc = async (id: string) => {
-    if (confirm('Are you sure you want to remove this broadsheet from the Public Published Archive?')) {
-      await deletePublishedNewspaperFirestore(id);
-      setStatusMsg('Published document deleted from Archive.');
-      setTimeout(() => setStatusMsg(''), 3000);
-    }
+    await deletePublishedNewspaperFirestore(id);
+    setStatusMsg('Published document deleted from Archive.');
+    setTimeout(() => setStatusMsg(''), 3000);
   };
 
   const activeProjectsList = libraryProjects.length > 0 ? libraryProjects : propProjects || [];

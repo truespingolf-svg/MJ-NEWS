@@ -43,7 +43,7 @@ export function loadAllProjects(): NewspaperProject[] {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
+      if (Array.isArray(parsed)) {
         cachedProjects = parsed;
         return parsed;
       }
@@ -51,9 +51,8 @@ export function loadAllProjects(): NewspaperProject[] {
   } catch {
     // ignore
   }
-  const starter = createStarterProject();
-  cachedProjects = [starter];
-  return [starter];
+  cachedProjects = [];
+  return [];
 }
 
 /**
@@ -96,7 +95,7 @@ export function getActiveProject(): NewspaperProject {
     const found = all.find((p) => p.id === activeId);
     if (found) return found;
   }
-  return all[0] || createStarterProject();
+  return all[0] || null;
 }
 
 /**
@@ -143,15 +142,12 @@ export function deleteProject(projectId: string): NewspaperProject[] {
   deleteProjectFirestore(projectId).catch((err) => console.error('Firestore delete project error:', err));
 
   if (cachedProjects.length === 0) {
-    const starter = createStarterProject();
-    cachedProjects = [starter];
-    saveProject(starter);
-    setActiveProjectId(starter.id);
-    return [starter];
+    localStorage.removeItem(ACTIVE_PROJECT_KEY);
+    return [];
   }
 
   const activeId = localStorage.getItem(ACTIVE_PROJECT_KEY);
-  if (activeId === projectId) {
+  if (activeId === projectId && cachedProjects.length > 0) {
     setActiveProjectId(cachedProjects[0].id);
   }
   return cachedProjects;

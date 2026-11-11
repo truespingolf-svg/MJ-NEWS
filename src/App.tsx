@@ -36,19 +36,10 @@ import { HomeScreenLockTakeover } from './components/home/HomeScreenLockTakeover
 import { NewsprintTextureOverlay } from './components/common/NewsprintTextureOverlay.tsx';
 import { StaffPasscodeModal } from './components/common/StaffPasscodeModal.tsx';
 import { TopNavigation, MainAppView } from './components/common/TopNavigation.tsx';
-import { TicketStudio } from './components/ticket/TicketStudio.tsx';
 import { AuthorisationCentre } from './components/authorisation/AuthorisationCentre.tsx';
-import { DocumentLibrary } from './components/library/DocumentLibrary.tsx';
 import { BrandingKitModal } from './components/branding/BrandingKitModal.tsx';
-import { loadAllTickets, duplicateTicket, deleteTicket } from './services/ticketStorage.ts';
-import {
-  loadAllAuthorisationDocs,
-  duplicateAuthorisationDoc,
-  deleteAuthorisationDoc,
-} from './services/authorisationStorage.ts';
 import { loadOrganizationBranding } from './services/brandingStorage.ts';
 import { OrganizationBranding } from './types/branding.ts';
-import { StaffAiNewspaperModal } from './components/editor/StaffAiNewspaperModal.tsx';
 
 type AppMode = 'public' | 'staff';
 
@@ -71,10 +62,6 @@ export default function App() {
   const [projects, setProjects] = useState<NewspaperProject[]>([]);
   const [currentProject, setCurrentProject] = useState<NewspaperProject | null>(null);
   const [activePageIndex, setActivePageIndex] = useState<number>(0);
-
-  // Cross-module documents state for Document Library
-  const [ticketsList, setTicketsList] = useState(() => loadAllTickets());
-  const [authorisationList, setAuthorisationList] = useState(() => loadAllAuthorisationDocs());
 
   // Canvas selection & zoom state
   const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
@@ -101,8 +88,6 @@ export default function App() {
   // Refresh lists helper
   const refreshLibraryData = () => {
     setProjects(loadAllProjects());
-    setTicketsList(loadAllTickets());
-    setAuthorisationList(loadAllAuthorisationDocs());
   };
 
   // Initial load
@@ -410,8 +395,47 @@ export default function App() {
           onToggleTexture={handleToggleTexture}
         />
       ) : (
-        /* STAFF CREATOR STUDIO */
-        <div className="flex-1 flex flex-col overflow-hidden relative z-10">
+        /* STAFF CREATOR STUDIO (THRILLER THEMED) */
+        <div className="flex-1 flex flex-col overflow-hidden relative z-10 bg-[#070305]">
+          {/* Animated Bats Swarm & Floating Embers Background Effect */}
+          <div className="absolute inset-0 pointer-events-none -z-10 overflow-hidden">
+            <div className="absolute -top-32 left-10 w-[500px] h-[500px] bg-red-950/30 rounded-full blur-[140px] animate-pulse" />
+            <div className="absolute bottom-10 right-10 w-[600px] h-[600px] bg-amber-950/20 rounded-full blur-[160px] animate-pulse" style={{ animationDuration: '7s' }} />
+
+            {/* Flying Bats Swarm Animation */}
+            {[
+              { top: '15%', left: '10%', scale: 'scale-75', dur: '9s', delay: '0s' },
+              { top: '35%', left: '70%', scale: 'scale-100', dur: '12s', delay: '2s' },
+              { top: '65%', left: '30%', scale: 'scale-90', dur: '10s', delay: '1s' },
+              { top: '80%', left: '80%', scale: 'scale-110', dur: '14s', delay: '3.5s' },
+              { top: '25%', left: '40%', scale: 'scale-60', dur: '8s', delay: '4s' },
+            ].map((bat, i) => (
+              <div
+                key={i}
+                className={`absolute ${bat.scale} opacity-40 pointer-events-none`}
+                style={{
+                  top: bat.top,
+                  left: bat.left,
+                  animation: `batFly ${bat.dur} ease-in-out infinite`,
+                  animationDelay: bat.delay,
+                }}
+              >
+                <svg className="w-12 h-8 text-red-600 drop-shadow-[0_0_8px_#dc2626]" viewBox="0 0 100 60" fill="currentColor">
+                  <path d="M50 20 C40 10 20 0 0 10 C15 25 30 30 50 40 C70 30 85 25 100 10 C80 0 60 10 50 20 Z" />
+                </svg>
+              </div>
+            ))}
+          </div>
+
+          <style>{`
+            @keyframes batFly {
+              0% { transform: translate(0px, 0px) rotate(0deg) scale(0.9); }
+              25% { transform: translate(120px, -60px) rotate(-10deg) scale(1.1); }
+              50% { transform: translate(240px, 20px) rotate(8deg) scale(0.8); }
+              75% { transform: translate(100px, 80px) rotate(-5deg) scale(1); }
+              100% { transform: translate(0px, 0px) rotate(0deg) scale(0.9); }
+            }
+          `}</style>
           {/* Top Staff Navigation Bar */}
           <TopNavigation
             activeView={mainView}
@@ -424,7 +448,6 @@ export default function App() {
             }}
             isAuthorisationUnlocked={isAuthorisationUnlocked}
             onOpenBrandingKit={() => setIsBrandingModalOpen(true)}
-            onOpenAiModal={() => setIsAiModalOpen(true)}
             onReturnToPublicPortal={() => {
               setAppMode('public');
               setIsStaffAuthenticated(false);
@@ -436,72 +459,16 @@ export default function App() {
 
           {/* Staff Main View Router */}
           <div className="flex-1 flex flex-col overflow-hidden relative">
-            {/* VIEW 1: TICKETS & INVITATIONS STUDIO */}
-            {mainView === 'tickets' && (
-              <TicketStudio
-                onOpenBrandingKit={() => setIsBrandingModalOpen(true)}
-                brandingOrganizationName={branding.name}
-              />
-            )}
-
-            {/* VIEW 2: AUTHORISATION CENTRE & CODES / PUBLISHING */}
+            {/* VIEW 1: AUTHORISATION CENTRE */}
             {mainView === 'authorisation' && (
               <AuthorisationCentre
                 isUnlocked={isAuthorisationUnlocked}
                 onUnlock={() => setIsAuthorisationUnlocked(true)}
                 onLock={() => setIsAuthorisationUnlocked(false)}
-                onOpenBrandingKit={() => setIsBrandingModalOpen(true)}
-                brandingOrganizationName={branding.name}
               />
             )}
 
-            {/* VIEW 3: CENTRAL DOCUMENT LIBRARY */}
-            {mainView === 'library' && (
-              <DocumentLibrary
-                newspapers={projects}
-                tickets={ticketsList}
-                authorisationDocs={authorisationList}
-                onOpenNewspaper={(id) => {
-                  handleOpenProject(id);
-                  setMainView('newspaper');
-                  setView('editor');
-                }}
-                onOpenTicket={() => {
-                  setMainView('tickets');
-                }}
-                onOpenAuthorisationDoc={() => {
-                  setIsAuthorisationUnlocked(true);
-                  setMainView('authorisation');
-                }}
-                onDuplicateNewspaper={(id) => {
-                  handleDuplicateProject(id);
-                  refreshLibraryData();
-                }}
-                onDuplicateTicket={(id) => {
-                  duplicateTicket(id);
-                  refreshLibraryData();
-                }}
-                onDuplicateAuthorisationDoc={(id) => {
-                  duplicateAuthorisationDoc(id);
-                  refreshLibraryData();
-                }}
-                onDeleteNewspaper={(id) => {
-                  handleDeleteProject(id);
-                  refreshLibraryData();
-                }}
-                onDeleteTicket={(id) => {
-                  deleteTicket(id);
-                  refreshLibraryData();
-                }}
-                onDeleteAuthorisationDoc={(id) => {
-                  deleteAuthorisationDoc(id);
-                  refreshLibraryData();
-                }}
-                onNavigateToTab={(tab) => setMainView(tab)}
-              />
-            )}
-
-            {/* VIEW 4: BROADSHEET NEWSPAPER STUDIO */}
+            {/* VIEW 2: BROADSHEET NEWSPAPER STUDIO */}
             {mainView === 'newspaper' && (
               <>
                 {view === 'dashboard' || !currentProject ? (
@@ -699,19 +666,6 @@ export default function App() {
           onClose={() => setActiveFlipbookDoc(null)}
         />
       )}
-
-      {/* Staff AI Broadsheet Newspaper Copilot Modal */}
-      <StaffAiNewspaperModal
-        isOpen={isAiModalOpen}
-        onClose={() => setIsAiModalOpen(false)}
-        onProjectCreated={(newProject) => {
-          setProjects((prev) => [newProject, ...prev]);
-          setCurrentProject(newProject);
-          setActivePageIndex(0);
-          setMainView('newspaper');
-          setView('editor');
-        }}
-      />
 
       {/* Offscreen container holding all sequential newspaper pages for straight PDF export & print */}
       {currentProject && (
