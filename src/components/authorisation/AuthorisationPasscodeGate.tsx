@@ -27,7 +27,7 @@ export const AuthorisationPasscodeGate: React.FC<AuthorisationPasscodeGateProps>
 
   const validateCode = (codeToTest: string) => {
     const clean = codeToTest.trim();
-    if (clean === fullCode || clean === '2526' || clean === '2513') {
+    if (clean === fullCode && clean !== '') {
       setErrorMessage('');
       onUnlock(false);
     } else {

@@ -238,9 +238,7 @@ export const StreamingPlatformSection: React.FC = () => {
                 {scheduledPremiere.title}
               </h2>
 
-              <p className="text-xs sm:text-sm text-neutral-300 leading-relaxed max-w-xl">
-                {scheduledPremiere.description || 'Exclusive broadcast premiere streaming in ultra high-definition directly from the MJJ Records archives.'}
-              </p>
+              {/* Removed description */}
 
               {/* Countdown Clocks */}
               {!premiereTimeLeft.isLiveNow ? (
@@ -427,9 +425,7 @@ export const StreamingPlatformSection: React.FC = () => {
                 {activeTrack.title}
               </h2>
 
-              <p className="text-xs sm:text-sm text-neutral-300 font-sans leading-relaxed line-clamp-2">
-                {activeTrack.description}
-              </p>
+              {/* Removed description */}
             </div>
 
             {/* Seek Bar & Timers */}
