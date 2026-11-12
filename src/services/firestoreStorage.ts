@@ -70,7 +70,7 @@ const LOCAL_STORAGE_BACKUP_KEY = 'mj_newspaper_studio_projects_v1';
 const ACTIVE_PROJECT_KEY = 'mj_newspaper_studio_active_id_v1';
 
 export function createStarterProject(): NewspaperProject {
-  const project = createNewProject('The King of Pop Chronicle');
+  const project = createNewProject('Untitled MJJ Broadsheet');
   project.subtitle = 'Commemorative Newspaper Edition';
 
   const cover = project.pages[0];
@@ -763,6 +763,8 @@ export interface UserProfile {
   points: number;
   votes: number;
   photoURL: string | null;
+  avatarUrl?: string;
+  role?: string;
   reactedNewspaperIds: string[];
   votedUserIds: string[];
   lastVotedMap?: Record<string, number>;
@@ -2072,9 +2074,11 @@ export async function setEventCountdownConfigInFirestore(config: Partial<EventCo
 export interface StreamingTrack {
   id: string;
   title: string;
+  artist?: string;
   album: string;
   era: 'Off The Wall' | 'Thriller' | 'Bad' | 'Dangerous' | 'HIStory' | 'Invincible' | 'Live Archive';
   durationSeconds: number;
+  duration?: string;
   releaseYear: number;
   coverImage: string;
   mediaUrl: string; // audio or video URL
@@ -2088,19 +2092,107 @@ export interface StreamingTrack {
   premiereTimestamp?: number; // Unix timestamp ms for premiere countdown
 }
 
+export const DEFAULT_STREAMING_TRACKS: StreamingTrack[] = [
+  {
+    id: 'master-billie-jean',
+    title: 'Billie Jean',
+    artist: 'Michael Jackson',
+    album: 'Thriller',
+    era: 'Thriller',
+    durationSeconds: 294,
+    releaseYear: 1982,
+    duration: '4:54',
+    coverImage: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=600&auto=format&fit=crop&q=80',
+    mediaUrl: '/assets/aistudio/13.Billie_Jean_a1324698.mp3',
+    mediaType: 'audio',
+    featured: true,
+    description: 'Groundbreaking worldwide number one hit single featuring the iconic bassline and studio master vocals.',
+    playCount: 14820,
+    producer: 'Quincy Jones & Michael Jackson',
+    lyricsSnippet: 'She was more like a beauty queen from a movie scene...',
+  },
+  {
+    id: 'master-man-in-the-mirror',
+    title: 'Man In The Mirror',
+    artist: 'Michael Jackson',
+    album: 'Bad',
+    era: 'Bad',
+    durationSeconds: 319,
+    releaseYear: 1987,
+    duration: '5:19',
+    coverImage: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=600&auto=format&fit=crop&q=80',
+    mediaUrl: '/assets/aistudio/14.Man_In_The_Mirror_379314db.mp3',
+    mediaType: 'audio',
+    featured: true,
+    description: 'Iconic humanitarian anthem with the Andre Crouch choir, delivering an inspiring message of personal change.',
+    playCount: 12450,
+    producer: 'Quincy Jones & Michael Jackson',
+    lyricsSnippet: "I'm gonna make a change, for once in my life...",
+  },
+  {
+    id: 'master-wanna-be-startin',
+    title: "Wanna Be Startin' Somethin'",
+    artist: 'Michael Jackson',
+    album: 'Thriller',
+    era: 'Thriller',
+    durationSeconds: 363,
+    releaseYear: 1982,
+    duration: '6:03',
+    coverImage: 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=600&auto=format&fit=crop&q=80',
+    mediaUrl: '/assets/aistudio/01.Wanna_Be_Startin__Somethin__386e32aa.mp3',
+    mediaType: 'audio',
+    featured: false,
+    description: 'High-octane funk opening track of Thriller featuring intense African polyrhythms and energetic brass.',
+    playCount: 9810,
+    producer: 'Quincy Jones & Michael Jackson',
+    lyricsSnippet: "It's too high to get over, too low to get under...",
+  },
+  {
+    id: 'master-smooth-criminal',
+    title: 'Smooth Criminal',
+    artist: 'Michael Jackson',
+    album: 'Bad',
+    era: 'Bad',
+    durationSeconds: 257,
+    releaseYear: 1987,
+    duration: '4:17',
+    coverImage: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=600&auto=format&fit=crop&q=80',
+    mediaUrl: '/assets/aistudio/58.Smooth_Criminal_bd449e87.mp3',
+    mediaType: 'audio',
+    featured: false,
+    description: 'Signature fedora and anti-gravity lean track, fast-paced rhythm with dramatic cinematic heartbeat audio.',
+    playCount: 18340,
+    producer: 'Quincy Jones & Michael Jackson',
+    lyricsSnippet: 'Annie, are you okay? So, Annie, are you okay? Are you okay, Annie?',
+  },
+];
+
 export function subscribeStreamingContent(callback: (tracks: StreamingTrack[]) => void): () => void {
   const colRef = collection(db, 'streamingContent');
   return onSnapshot(
     colRef,
     (snap) => {
-      const list: StreamingTrack[] = [];
-      snap.forEach((d) => {
-        list.push({ id: d.id, ...d.data() } as StreamingTrack);
-      });
-      callback(list);
+      if (snap.empty) {
+        callback(DEFAULT_STREAMING_TRACKS);
+      } else {
+        const list: StreamingTrack[] = [];
+        snap.forEach((d) => {
+          list.push({ id: d.id, ...d.data() } as StreamingTrack);
+        });
+        // Prepend any default master tracks not already in the custom uploaded list
+        const existingUrls = new Set(list.map((t) => t.mediaUrl));
+        const merged = [...list];
+        DEFAULT_STREAMING_TRACKS.forEach((def) => {
+          if (!existingUrls.has(def.mediaUrl)) {
+            merged.push(def);
+          }
+        });
+        callback(merged);
+      }
     },
     (err) => {
       handleFirestoreError(err, OperationType.LIST, 'streamingContent');
+      callback(DEFAULT_STREAMING_TRACKS);
     }
   );
 }
@@ -2142,7 +2234,7 @@ export interface StaffAuditLog {
   id: string;
   staffName: string;
   staffRole: string;
-  actionType: 'AWARD_VOTES' | 'ADJUST_POINTS' | 'DELETE_USER' | 'UPDATE_COUNTDOWN' | 'MANAGE_CHALLENGE' | 'PUBLISH_NEWS' | 'LOCK_PORTAL';
+  actionType: 'AWARD_VOTES' | 'ADJUST_POINTS' | 'DELETE_USER' | 'UPDATE_COUNTDOWN' | 'MANAGE_CHALLENGE' | 'PUBLISH_NEWS' | 'LOCK_PORTAL' | 'UPDATE_PASSCODES';
   targetEntityId: string;
   targetEntityLabel: string;
   details: string;
@@ -2308,7 +2400,7 @@ export function subscribeStaffMembers(callback: (staff: StaffMember[]) => void):
     colRef,
     (snap) => {
       if (snap.empty) {
-        callback(DEFAULT_STAFF_MEMBERS);
+        callback([]);
       } else {
         const list: StaffMember[] = [];
         snap.forEach((d) => list.push({ id: d.id, ...d.data() } as StaffMember));
@@ -2317,7 +2409,7 @@ export function subscribeStaffMembers(callback: (staff: StaffMember[]) => void):
       }
     },
     () => {
-      callback(DEFAULT_STAFF_MEMBERS);
+      callback([]);
     }
   );
 }
@@ -2362,20 +2454,63 @@ export function subscribeSiteAudioSettings(callback: (settings: SiteAudioSetting
         callback(snap.data() as SiteAudioSettings);
       } else {
         callback({
-          entrySongUrl: '/assets/aistudio/THRILLER_AUDIO_IDEA_533b2f46.mp3',
-          entrySongTitle: 'Thriller (Official Studio Master)',
+          entrySongUrl: '/assets/aistudio/13.Billie_Jean_a1324698.mp3',
+          entrySongTitle: 'Billie Jean (Official Master)',
           autoplayEnabled: true,
         });
       }
     },
     () => {
       callback({
-        entrySongUrl: '/assets/aistudio/THRILLER_AUDIO_IDEA_533b2f46.mp3',
-        entrySongTitle: 'Thriller (Official Studio Master)',
+        entrySongUrl: '/assets/aistudio/13.Billie_Jean_a1324698.mp3',
+        entrySongTitle: 'Billie Jean (Official Master)',
         autoplayEnabled: true,
       });
     }
   );
+}
+
+// Staff Direct Message to User (Pops as notification on home screen)
+export async function sendMessageToUser(
+  targetUid: string,
+  messageData: {
+    subject: string;
+    message: string;
+    senderName?: string;
+  }
+): Promise<boolean> {
+  try {
+    const userRef = doc(db, 'users', targetUid);
+    const snap = await getDoc(userRef);
+    if (!snap.exists()) return false;
+
+    const user = snap.data() as UserProfile;
+    const existingNotifs = user.notifications || [];
+
+    const newNotif = {
+      id: `notif-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      title: messageData.subject || 'Direct Staff Message',
+      message: messageData.message,
+      type: 'message' as const,
+      senderName: messageData.senderName || 'MJJ Records Staff',
+      issuedAt: new Date().toISOString(),
+      read: false,
+    };
+
+    await setDoc(
+      userRef,
+      {
+        notifications: [newNotif, ...existingNotifs],
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
+
+    return true;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, `users/${targetUid}`);
+    return false;
+  }
 }
 
 export async function setSiteAudioSettingsFirestore(settings: Partial<SiteAudioSettings>): Promise<boolean> {
@@ -2481,6 +2616,49 @@ export async function assignApplicantRoleAndNotifyFirestore(
     return { success: false, message: 'Failed to assign role and dispatch notification.' };
   }
 }
+
+// -------------------------------------------------------------
+// 18. PASSCODE SECURITY & SETTINGS
+// -------------------------------------------------------------
+
+export interface PasscodeSettings {
+  fullPasscode: string;
+  trialPasscode: string;
+}
+
+export function subscribePasscodeSettings(callback: (settings: PasscodeSettings) => void): () => void {
+  const docRef = doc(db, 'system', 'passcodeSettings');
+  return onSnapshot(
+    docRef,
+    (snap) => {
+      if (snap.exists()) {
+        callback(snap.data() as PasscodeSettings);
+      } else {
+        callback({
+          fullPasscode: '2526',
+          trialPasscode: '2520',
+        });
+      }
+    },
+    () => {
+      callback({
+        fullPasscode: '2526',
+        trialPasscode: '2520',
+      });
+    }
+  );
+}
+
+export async function setPasscodeSettingsFirestore(settings: Partial<PasscodeSettings>): Promise<boolean> {
+  try {
+    await setDoc(doc(db, 'system', 'passcodeSettings'), settings, { merge: true });
+    return true;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, 'system/passcodeSettings');
+    return false;
+  }
+}
+
 
 
 

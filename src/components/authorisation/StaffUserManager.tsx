@@ -4,6 +4,7 @@ import {
   subscribeUsers,
   sendTicketToUser,
   sendCodeToUser,
+  sendMessageToUser,
   adjustUserPoints,
   subscribeVotingConfig,
   setPointsPerVoteInFirestore,
@@ -59,7 +60,12 @@ export const StaffUserManager: React.FC = () => {
   const [lockRemainingSec, setLockRemainingSec] = useState<number>(0);
 
   // Modal actions
-  const [activeModal, setActiveModal] = useState<'ticket' | 'code' | 'points' | null>(null);
+  const [activeModal, setActiveModal] = useState<'ticket' | 'message' | 'code' | 'points' | null>(null);
+
+  // Direct Message Form state
+  const [directMsgSubject, setDirectMsgSubject] = useState('Important Staff Notice');
+  const [directMsgBody, setDirectMsgBody] = useState('');
+  const [directMsgSender, setDirectMsgSender] = useState('MJJ Records Staff');
 
   // Ticket Form state
   const [ticketEvent, setTicketEvent] = useState('MJJ Records Commemorative Press Showcase');
@@ -201,6 +207,38 @@ export const StaffUserManager: React.FC = () => {
       (u.email || '').toLowerCase().includes(term)
     );
   });
+
+  // Handle Send Direct Message
+  const handleSendDirectMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedUser || !directMsgBody.trim()) return;
+    setIsSubmitting(true);
+
+    try {
+      const ok = await sendMessageToUser(selectedUser.uid, {
+        subject: directMsgSubject.trim() || 'Direct Staff Notice',
+        message: directMsgBody.trim(),
+        senderName: directMsgSender.trim() || 'MJJ Records Staff',
+      });
+
+      if (ok) {
+        confetti({ particleCount: 90, spread: 70, origin: { y: 0.6 } });
+        setStatusMsg({
+          type: 'success',
+          text: `Direct message successfully dispatched to @${selectedUser.discordUser || selectedUser.displayName}! It will appear as an instant alert on their home screen.`,
+        });
+        setDirectMsgSubject('Important Staff Notice');
+        setDirectMsgBody('');
+        setActiveModal(null);
+      } else {
+        setStatusMsg({ type: 'error', text: 'Failed to send message.' });
+      }
+    } catch {
+      setStatusMsg({ type: 'error', text: 'Error sending direct message.' });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   // Handle Send Ticket
   const handleSendTicket = async (e: React.FormEvent) => {
@@ -368,7 +406,7 @@ export const StaffUserManager: React.FC = () => {
                   value={tempPointsPerVote}
                   onChange={(e) => setTempPointsPerVote(Number(e.target.value))}
                   min={1}
-                  step={50}
+                  step="any"
                   className="w-32 bg-neutral-950 border border-amber-400 rounded-xl pl-7 pr-3 py-1.5 text-xs text-white font-mono focus:outline-none"
                   autoFocus
                 />
@@ -610,7 +648,18 @@ export const StaffUserManager: React.FC = () => {
               </div>
 
               {/* Action Buttons */}
-              <div className="pt-2 flex items-center gap-2">
+              <div className="pt-2 flex flex-wrap items-center gap-1.5">
+                <button
+                  onClick={() => {
+                    setSelectedUser(user);
+                    setActiveModal('message');
+                  }}
+                  className="flex-1 py-1.5 px-2 bg-[#1b0c10] hover:bg-[#281218] text-red-300 border border-red-500/40 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors"
+                >
+                  <Send className="w-3 h-3 text-red-400" />
+                  <span>Send Notice</span>
+                </button>
+
                 <button
                   onClick={() => {
                     setSelectedUser(user);
@@ -619,7 +668,7 @@ export const StaffUserManager: React.FC = () => {
                   className="flex-1 py-1.5 px-2 bg-neutral-800 hover:bg-neutral-700 text-amber-300 border border-amber-500/30 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors"
                 >
                   <Ticket className="w-3 h-3" />
-                  <span>Send Ticket</span>
+                  <span>VIP Pass</span>
                 </button>
 
                 <button
@@ -654,6 +703,82 @@ export const StaffUserManager: React.FC = () => {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Modal: Send Direct Notice Message */}
+      {activeModal === 'message' && selectedUser && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-[#14080b] border border-red-500/40 rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative">
+            <button
+              onClick={() => setActiveModal(null)}
+              className="absolute top-4 right-4 text-neutral-400 hover:text-white"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-red-500/20 text-red-400 flex items-center justify-center">
+                <Send className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-white text-base">Send Direct Staff Message</h3>
+                <p className="text-xs text-neutral-400">
+                  Recipient: @{selectedUser.discordUser || selectedUser.displayName}
+                </p>
+              </div>
+            </div>
+
+            <form onSubmit={handleSendDirectMessage} className="space-y-3 pt-2">
+              <div>
+                <label className="block text-xs font-semibold text-neutral-300 mb-1">
+                  Notice Subject / Header
+                </label>
+                <input
+                  type="text"
+                  value={directMsgSubject}
+                  onChange={(e) => setDirectMsgSubject(e.target.value)}
+                  className="w-full bg-neutral-950 border border-neutral-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-red-400"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-neutral-300 mb-1">
+                  Message Content (Will pop as notification on home screen)
+                </label>
+                <textarea
+                  rows={4}
+                  value={directMsgBody}
+                  onChange={(e) => setDirectMsgBody(e.target.value)}
+                  placeholder="Type your official direct message or alert here..."
+                  className="w-full bg-neutral-950 border border-neutral-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-red-400 leading-relaxed"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-neutral-300 mb-1">
+                  Sender Signature
+                </label>
+                <input
+                  type="text"
+                  value={directMsgSender}
+                  onChange={(e) => setDirectMsgSender(e.target.value)}
+                  className="w-full bg-neutral-950 border border-neutral-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-red-400"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={isSubmitting || !directMsgBody.trim()}
+                className="w-full py-2.5 rounded-xl bg-gradient-to-r from-red-600 via-rose-600 to-red-700 hover:from-red-500 hover:to-rose-500 text-white font-bold text-xs uppercase flex items-center justify-center gap-2 mt-2 cursor-pointer shadow-lg shadow-red-950/80"
+              >
+                <Send className="w-4 h-4" />
+                <span>DISPATCH MESSAGE TO USER INBOX</span>
+              </button>
+            </form>
+          </div>
         </div>
       )}
 
@@ -818,8 +943,8 @@ export const StaffUserManager: React.FC = () => {
                   type="number"
                   value={grantPoints}
                   onChange={(e) => setGrantPoints(Number(e.target.value))}
-                  min={100}
-                  step={500}
+                  min={1}
+                  step="any"
                   className="w-full bg-neutral-950 border border-neutral-700 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-emerald-400"
                 />
               </div>

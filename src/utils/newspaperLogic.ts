@@ -380,7 +380,7 @@ export function createInteriorPage(
 /**
  * Creates a new project with initial Front Cover.
  */
-export function createNewProject(title: string = 'The King of Pop Chronicle'): NewspaperProject {
+export function createNewProject(title: string = 'Untitled MJJ Broadsheet'): NewspaperProject {
   const coverPage = createFrontCoverPage(1);
   const now = new Date().toISOString();
 

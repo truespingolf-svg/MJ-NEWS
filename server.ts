@@ -94,10 +94,20 @@ async function startServer() {
   app.get('/api/public/data', (_req, res) => {
     const dbData = loadDb();
     updatePublicationTimerState(dbData);
+
+    const isChronicle = (item: any) => {
+      if (!item) return false;
+      const nameStr = String(item.name || item.title || item.projectTitle || '');
+      return nameStr.toLowerCase().includes('king of pop chronicle');
+    };
+
+    const cleanPublished = isChronicle(dbData.publishedNewspaper) ? null : dbData.publishedNewspaper;
+    const cleanArchives = (dbData.archivedNewspapers || []).filter((a: any) => !isChronicle(a));
+
     res.json({
-      publishedNewspaper: dbData.publishedNewspaper,
-      archivedNewspapers: dbData.archivedNewspapers || [],
-      publicArchives: dbData.archivedNewspapers || [],
+      publishedNewspaper: cleanPublished,
+      archivedNewspapers: cleanArchives,
+      publicArchives: cleanArchives,
       announcements: (dbData.announcements || []).filter((a: any) => a.active),
       settings: dbData.settings,
       promoCodes: (dbData.promoCodes || [])

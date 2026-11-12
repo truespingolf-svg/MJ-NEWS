@@ -332,8 +332,8 @@ export const StaffChallengeManager: React.FC = () => {
                 </label>
                 <input
                   type="number"
-                  step="500"
-                  min="500"
+                  step="any"
+                  min="1"
                   value={pointsReward}
                   onChange={(e) => setPointsReward(Number(e.target.value))}
                   className="w-full px-3 py-2 rounded-xl bg-neutral-950 border border-neutral-700 text-white text-xs font-mono focus:outline-none focus:border-amber-400"

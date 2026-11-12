@@ -59,8 +59,8 @@ export const StaffStreamingManager: React.FC = () => {
 
   // Site Entry Song state
   const [siteAudioSettings, setSiteAudioSettings] = useState<SiteAudioSettings>({
-    entrySongUrl: '/assets/aistudio/THRILLER_AUDIO_IDEA_533b2f46.mp3',
-    entrySongTitle: 'Thriller (Official Studio Master)',
+    entrySongUrl: '/assets/aistudio/13.Billie_Jean_a1324698.mp3',
+    entrySongTitle: 'Billie Jean (Official Master)',
     autoplayEnabled: true,
   });
   const [entrySongUrl, setEntrySongUrl] = useState('');
@@ -81,8 +81,8 @@ export const StaffStreamingManager: React.FC = () => {
 
     const unsubAudio = subscribeSiteAudioSettings((settings) => {
       setSiteAudioSettings(settings);
-      setEntrySongUrl(settings.entrySongUrl || '/assets/aistudio/THRILLER_AUDIO_IDEA_533b2f46.mp3');
-      setEntrySongTitle(settings.entrySongTitle || 'Thriller (Official Studio Master)');
+      setEntrySongUrl(settings.entrySongUrl || '/assets/aistudio/13.Billie_Jean_a1324698.mp3');
+      setEntrySongTitle(settings.entrySongTitle || 'Billie Jean (Official Master)');
       setAutoplayEnabled(settings.autoplayEnabled !== false);
     });
 
@@ -113,7 +113,7 @@ export const StaffStreamingManager: React.FC = () => {
         releaseYear: Number(releaseYear) || 1982,
         coverImage: coverImage.trim() || '/src/assets/images/streaming_thriller_vinyl_1794407118068.jpg',
         mediaType,
-        mediaUrl: mediaUrl.trim() || 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',
+        mediaUrl: mediaUrl.trim() || '/assets/aistudio/13.Billie_Jean_a1324698.mp3',
         description: description.trim() || 'Official master audio archive recording from MJJ Records.',
         featured: isFeatured,
         playCount: 0,
@@ -153,8 +153,8 @@ export const StaffStreamingManager: React.FC = () => {
 
     try {
       await setSiteAudioSettingsFirestore({
-        entrySongUrl: entrySongUrl.trim() || '/assets/aistudio/THRILLER_AUDIO_IDEA_533b2f46.mp3',
-        entrySongTitle: entrySongTitle.trim() || 'Thriller (Official Studio Master)',
+        entrySongUrl: entrySongUrl.trim() || '/assets/aistudio/13.Billie_Jean_a1324698.mp3',
+        entrySongTitle: entrySongTitle.trim() || 'Billie Jean (Official Master)',
         autoplayEnabled,
       });
 

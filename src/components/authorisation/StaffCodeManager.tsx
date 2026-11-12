@@ -348,8 +348,8 @@ export const StaffCodeManager: React.FC<StaffCodeManagerProps> = ({ projects: pr
                   type="number"
                   value={pointsAmount}
                   onChange={(e) => setPointsAmount(Number(e.target.value))}
-                  min={10}
-                  step={50}
+                  min={1}
+                  step="any"
                   className="w-full bg-[#181824] border border-[#2b2b3a] rounded-lg px-3 py-2 text-white font-mono text-xs focus:outline-none focus:border-amber-400"
                 />
               </div>

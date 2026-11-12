@@ -33,10 +33,10 @@ export interface MarketingApplication {
 }
 
 const PRESET_ROLES = [
+  'App Moderator',
+  'Newspaper Specialist',
+  'Challenge Maker',
   'Marketing Executive',
-  'Lead Music Promoter',
-  'Public Relations Editor',
-  'Community Moderator',
   'Broadsheet Contributor',
   'VIP Ambassador',
 ];

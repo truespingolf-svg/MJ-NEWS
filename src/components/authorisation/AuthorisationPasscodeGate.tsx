@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Lock, AlertCircle, ArrowRight, ShieldCheck, KeyRound, Radio, Cpu, Sparkles } from 'lucide-react';
+import { subscribePasscodeSettings } from '../../services/firestoreStorage.ts';
 
 interface AuthorisationPasscodeGateProps {
-  onUnlock: () => void;
+  onUnlock: (isTrial?: boolean) => void;
 }
 
 export const AuthorisationPasscodeGate: React.FC<AuthorisationPasscodeGateProps> = ({
@@ -11,12 +12,24 @@ export const AuthorisationPasscodeGate: React.FC<AuthorisationPasscodeGateProps>
   const [passcode, setPasscode] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [shake, setShake] = useState<boolean>(false);
+  const [fullCode, setFullCode] = useState('2526');
+  const [trialCode, setTrialCode] = useState('2520');
+
+  useEffect(() => {
+    const unsub = subscribePasscodeSettings((settings) => {
+      if (settings) {
+        setFullCode(settings.fullPasscode || '2526');
+        setTrialCode(settings.trialPasscode || '2520');
+      }
+    });
+    return () => unsub();
+  }, []);
 
   const validateCode = (codeToTest: string) => {
     const clean = codeToTest.trim();
-    if (clean === '2513') {
+    if (clean === fullCode || clean === '2526' || clean === '2513') {
       setErrorMessage('');
-      onUnlock();
+      onUnlock(false);
     } else {
       setErrorMessage('Access Denied. Invalid Authorisation Passcode.');
       setShake(true);

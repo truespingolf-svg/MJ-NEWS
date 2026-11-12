@@ -10,6 +10,7 @@ import { StaffNewsManager } from './StaffNewsManager.tsx';
 import { StaffStreamingManager } from './StaffStreamingManager.tsx';
 import { StaffCountdownManager } from './StaffCountdownManager.tsx';
 import { StaffAuditLogsView } from './StaffAuditLogsView.tsx';
+import { StaffPasscodesManager } from './StaffPasscodesManager.tsx';
 import {
   ShieldCheck,
   Lock,
@@ -18,7 +19,8 @@ import {
 
 interface AuthorisationCentreProps {
   isUnlocked: boolean;
-  onUnlock: () => void;
+  isTrialStaff?: boolean;
+  onUnlock: (isTrial?: boolean) => void;
   onLock: () => void;
   onOpenBrandingKit?: () => void;
   brandingOrganizationName?: string;
@@ -34,21 +36,31 @@ export type StaffTab =
   | 'users'
   | 'publishing'
   | 'codes'
+  | 'passcodes'
   | 'audit';
 
 export const AuthorisationCentre: React.FC<AuthorisationCentreProps> = ({
   isUnlocked,
+  isTrialStaff,
   onUnlock,
   onLock,
 }) => {
   const [activeTab, setActiveTab] = useState<StaffTab>('challenges');
 
-  if (!isUnlocked) {
+  if (!isUnlocked && !isTrialStaff) {
     return <AuthorisationPasscodeGate onUnlock={onUnlock} />;
   }
 
   return (
     <div className="flex-1 flex flex-col h-full bg-[#07070a] text-neutral-100 overflow-hidden font-sans">
+      {/* Trial Staff View-Only Banner */}
+      {isTrialStaff && (
+        <div className="bg-amber-950/90 border-b border-amber-500/50 px-4 py-2 text-center text-xs font-mono font-bold text-amber-300 flex items-center justify-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+          <span>TRIAL STAFF VIEW-ONLY MODE ACTIVE: Full read and inspection access enabled. Editing and deleting are restricted to official executive staff.</span>
+        </div>
+      )}
+
       {/* Staff Sub-Header Single Dropdown Selector */}
       <div className="bg-gradient-to-r from-[#0f090c] via-[#160c10] to-[#0f090c] border-b border-red-950/60 px-3 sm:px-6 py-2.5 flex flex-wrap items-center justify-between gap-2.5 shadow-lg select-none min-h-13 h-auto shrink-0 z-30">
         <div className="flex items-center gap-2.5 shrink-0">
@@ -74,6 +86,7 @@ export const AuthorisationCentre: React.FC<AuthorisationCentreProps> = ({
               <option value="users">👤 Community Players, Accounts &amp; Points</option>
               <option value="publishing">📻 Newspaper Broadcast &amp; Ticker</option>
               <option value="codes">🔑 Reward Codes, Points &amp; Redemptions</option>
+              <option value="passcodes">🔑 Passcode Security &amp; Access Codes</option>
               <option value="audit">🛡️ Staff Administration Audit Trail</option>
             </select>
             <ChevronDown className="w-4 h-4 text-amber-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -156,6 +169,13 @@ export const AuthorisationCentre: React.FC<AuthorisationCentreProps> = ({
       {activeTab === 'codes' && (
         <div className="flex-1 overflow-auto">
           <StaffCodeManager />
+        </div>
+      )}
+
+      {/* Tab 11: Passcodes Security Settings */}
+      {activeTab === 'passcodes' && (
+        <div className="flex-1 overflow-auto">
+          <StaffPasscodesManager />
         </div>
       )}
 

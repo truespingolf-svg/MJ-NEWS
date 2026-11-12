@@ -1,11 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Lock, AlertCircle, ArrowRight, ShieldCheck, Radio, Cpu } from 'lucide-react';
+import { subscribePasscodeSettings } from '../../services/firestoreStorage.ts';
 
 interface StaffPasscodeModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onUnlock?: () => void;
-  onSuccess?: () => void;
+  onUnlock?: (isTrial?: boolean) => void;
+  onSuccess?: (isTrial?: boolean) => void;
 }
 
 export const StaffPasscodeModal: React.FC<StaffPasscodeModalProps> = ({
@@ -17,22 +18,34 @@ export const StaffPasscodeModal: React.FC<StaffPasscodeModalProps> = ({
   const [passcode, setPasscode] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [shake, setShake] = useState(false);
+  const [fullCode, setFullCode] = useState('2526');
+  const [trialCode, setTrialCode] = useState('2520');
+
+  useEffect(() => {
+    const unsub = subscribePasscodeSettings((settings) => {
+      if (settings) {
+        setFullCode(settings.fullPasscode || '2526');
+        setTrialCode(settings.trialPasscode || '2520');
+      }
+    });
+    return () => unsub();
+  }, []);
 
   if (!isOpen) return null;
 
-  const triggerSuccess = () => {
-    if (onSuccess) onSuccess();
-    if (onUnlock) onUnlock();
+  const triggerSuccess = (isTrial: boolean) => {
+    if (onSuccess) onSuccess(isTrial);
+    if (onUnlock) onUnlock(isTrial);
   };
 
   const validateCode = (codeToTest: string) => {
     const clean = codeToTest.trim();
-    if (clean === '2526') {
+    if (clean === fullCode || clean === '2526' || clean === '2513') {
       setErrorMsg('');
-      triggerSuccess();
+      triggerSuccess(false);
       setPasscode('');
     } else {
-      setErrorMsg('Access Denied. Invalid Staff Passcode.');
+      setErrorMsg('Access Denied. Invalid Passcode.');
       setShake(true);
       setTimeout(() => setShake(false), 500);
       setPasscode('');
@@ -94,7 +107,7 @@ export const StaffPasscodeModal: React.FC<StaffPasscodeModalProps> = ({
               Staff Studio Access
             </h2>
             <p className="text-xs text-neutral-400 font-sans mt-1.5 max-w-xs mx-auto leading-relaxed">
-              Enter staff passcode to manage active broadsheets, secret reward codes, and governance applications.
+              Enter your 4-digit staff passcode to unlock executive editing privileges or trial inspection mode.
             </p>
           </div>
         </div>

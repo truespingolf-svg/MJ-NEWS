@@ -68,6 +68,8 @@ import { ThrillerCinematicIntro } from '../common/ThrillerCinematicIntro.tsx';
 import { UpcomingEventCountdown } from '../home/UpcomingEventCountdown.tsx';
 import { NewsPlatformSection } from '../news/NewsPlatformSection.tsx';
 import { StreamingPlatformSection } from '../streaming/StreamingPlatformSection.tsx';
+import { AtmosphericMovingBackground } from '../common/AtmosphericMovingBackground.tsx';
+import { CommunityLiveChat } from '../home/CommunityLiveChat.tsx';
 
 interface Announcement {
   id: string;
@@ -96,14 +98,31 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
 
   // Site Entrance Background Music Player state
   const [siteAudioSettings, setSiteAudioSettings] = useState<SiteAudioSettings>({
-    entrySongUrl: '/assets/aistudio/THRILLER_AUDIO_IDEA_533b2f46.mp3',
-    entrySongTitle: 'Thriller (Official Studio Master)',
+    entrySongUrl: '/assets/aistudio/13.Billie_Jean_a1324698.mp3',
+    entrySongTitle: 'Billie Jean (Official Master)',
     autoplayEnabled: true,
   });
-  const [resolvedAudioUrl, setResolvedAudioUrl] = useState<string>('/assets/aistudio/THRILLER_AUDIO_IDEA_533b2f46.mp3');
+  const [resolvedAudioUrl, setResolvedAudioUrl] = useState<string>('/assets/aistudio/13.Billie_Jean_a1324698.mp3');
   const [isBgAudioPlaying, setIsBgAudioPlaying] = useState<boolean>(false);
   const [isBgAudioMuted, setIsBgAudioMuted] = useState<boolean>(false);
+  const [bgAudioTime, setBgAudioTime] = useState<{ current: number; duration: number }>({ current: 0, duration: 294 });
   const bgAudioRef = useRef<HTMLAudioElement | null>(null);
+  const mainContainerRef = useRef<HTMLDivElement | null>(null);
+
+  // Force scroll to top whenever changing tabs or dismissing intro
+  useEffect(() => {
+    if (mainContainerRef.current) {
+      mainContainerRef.current.scrollTop = 0;
+    }
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+  }, [activeNavTab, showCinematicIntro]);
+
+  const formatAudioTime = (sec: number) => {
+    if (!sec || isNaN(sec) || sec <= 0) return '0:00';
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return `${m}:${s < 10 ? '0' : ''}${s}`;
+  };
 
   useEffect(() => {
     if (siteAudioSettings.entrySongUrl) {
@@ -148,10 +167,11 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
   });
   const [isSubmittingCode, setIsSubmittingCode] = useState<boolean>(false);
 
-  // Marketing Application modal state
+  // Staff Contractor Application modal state
   const [showAppModal, setShowAppModal] = useState<boolean>(false);
   const [appFullName, setAppFullName] = useState<string>('');
   const [appDiscord, setAppDiscord] = useState<string>('');
+  const [appRole, setAppRole] = useState<string>('App Moderator');
   const [appReason, setAppReason] = useState<string>('');
   const [appStatus, setAppStatus] = useState<{ type: 'success' | 'error' | null; message: string }>({
     type: null,
@@ -174,11 +194,22 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
     };
   };
 
+  const isChronicleDoc = (doc: any) => {
+    if (!doc) return false;
+    const str = String(doc.name || doc.title || doc.projectTitle || '');
+    return str.toLowerCase().includes('king of pop chronicle');
+  };
+
   // Real-time Firestore sync subscriptions
   useEffect(() => {
     const unsubPub = subscribePublishedNewspaper((pub) => {
-      setPublishedDoc(pub);
-      setExpiresAt(pub?.expiresAt || null);
+      if (pub && isChronicleDoc(pub)) {
+        setPublishedDoc(null);
+        setExpiresAt(null);
+      } else {
+        setPublishedDoc(pub);
+        setExpiresAt(pub?.expiresAt || null);
+      }
       setLoading(false);
     });
 
@@ -191,7 +222,8 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
     });
 
     const unsubProj = subscribeAllPublishedNewspapers((pubs) => {
-      setArchives(pubs);
+      const cleanPubs = (pubs || []).filter((p) => !isChronicleDoc(p));
+      setArchives(cleanPubs);
     });
 
     const unsubUsers = subscribeUsers((users) => {
@@ -321,12 +353,25 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
       bgAudioRef.current.pause();
       setIsBgAudioPlaying(false);
     } else {
+      window.dispatchEvent(new CustomEvent('mjj_stop_vault_audio'));
       bgAudioRef.current
         .play()
         .then(() => setIsBgAudioPlaying(true))
         .catch(() => setIsBgAudioPlaying(false));
     }
   };
+
+  // Cross-audio synchronization: stop background music when vault audio plays
+  useEffect(() => {
+    const handleStopBg = () => {
+      if (bgAudioRef.current) {
+        bgAudioRef.current.pause();
+        setIsBgAudioPlaying(false);
+      }
+    };
+    window.addEventListener('mjj_stop_bg_audio', handleStopBg);
+    return () => window.removeEventListener('mjj_stop_bg_audio', handleStopBg);
+  }, []);
 
   const toggleBgAudioMute = () => {
     if (!bgAudioRef.current) return;
@@ -492,10 +537,11 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
     setAppStatus({ type: null, message: '' });
 
     try {
+      const combinedReason = `[Requested Role: ${appRole}] ${appReason.trim()}`;
       const ok = await submitApplicationFirestore({
         discordUser: appDiscord.trim(),
         fullName: appFullName.trim() || 'Anonymous Applicant',
-        reason: appReason.trim(),
+        reason: combinedReason,
       });
 
       fetch('/api/public/submit-application', {
@@ -504,7 +550,7 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
         body: JSON.stringify({
           discordUser: appDiscord.trim(),
           fullName: appFullName.trim() || 'Anonymous Applicant',
-          reason: appReason.trim(),
+          reason: combinedReason,
         }),
       }).catch(() => {});
 
@@ -548,9 +594,14 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
   const featuredTrack = streamingTracks[0];
 
   return (
-    <div className="flex-1 w-full overflow-y-auto bg-[#07070a] text-neutral-100 font-sans selection:bg-red-600 selection:text-white relative">
+    <div ref={mainContainerRef} className="flex-1 w-full overflow-y-auto bg-[#07070a] text-neutral-100 font-sans selection:bg-red-600 selection:text-white relative">
+      {/* Global Atmospheric Moving Background (Flying Bats, Eerie Mist, Blood Embers) */}
+      <AtmosphericMovingBackground />
+
       {/* Thriller Cinematic Loading Sequence (Skippable / Replayable) */}
-      {showCinematicIntro && <ThrillerCinematicIntro onComplete={handleDismissIntro} />}
+      {showCinematicIntro && (
+        <ThrillerCinematicIntro onComplete={handleDismissIntro} sharedAudioRef={bgAudioRef} />
+      )}
 
       {/* Top Scrolling Marquee Announcement Banner */}
       <PublicMarqueeBanner announcements={announcements} />
@@ -559,8 +610,20 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
       <audio
         ref={bgAudioRef}
         src={resolvedAudioUrl || siteAudioSettings.entrySongUrl}
-        loop
         preload="auto"
+        onPlay={() => setIsBgAudioPlaying(true)}
+        onPause={() => setIsBgAudioPlaying(false)}
+        onTimeUpdate={(e) => {
+          const el = e.currentTarget;
+          setBgAudioTime({ current: el.currentTime || 0, duration: el.duration || 294 });
+        }}
+        onLoadedMetadata={(e) => {
+          const el = e.currentTarget;
+          setBgAudioTime({ current: el.currentTime || 0, duration: el.duration || 294 });
+        }}
+        onEnded={() => {
+          setIsBgAudioPlaying(false);
+        }}
       />
 
       {/* Main Top Navigation Header */}
@@ -630,25 +693,27 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
             >
               {isBgAudioPlaying ? (
                 <>
-                  <Volume2 className="w-3.5 h-3.5 text-red-400 animate-pulse" />
-                  <div className="flex items-end gap-0.5 h-3">
+                  <Volume2 className="w-3.5 h-3.5 text-red-400 animate-pulse shrink-0" />
+                  <div className="flex items-end gap-0.5 h-3 shrink-0">
                     <span className="w-0.5 bg-red-400 animate-[bounce_0.6s_ease-in-out_infinite] h-2" />
                     <span className="w-0.5 bg-red-400 animate-[bounce_0.8s_ease-in-out_infinite] h-3" />
                     <span className="w-0.5 bg-red-400 animate-[bounce_0.5s_ease-in-out_infinite] h-1.5" />
                   </div>
-                  <span className="hidden lg:inline text-[11px] truncate max-w-[130px]">
-                    {siteAudioSettings.entrySongTitle || 'Theme Playing'}
+                  <span className="text-[11px] font-mono text-red-200">
+                    {formatAudioTime(bgAudioTime.current)} / {formatAudioTime(bgAudioTime.duration)}
                   </span>
                 </>
               ) : (
                 <>
-                  <VolumeX className="w-3.5 h-3.5 text-neutral-500" />
-                  <span className="hidden sm:inline text-[11px]">Play Music</span>
+                  <VolumeX className="w-3.5 h-3.5 text-neutral-500 shrink-0" />
+                  <span className="text-[11px] font-mono text-neutral-400">
+                    Play Music ({formatAudioTime(bgAudioTime.current)})
+                  </span>
                 </>
               )}
             </button>
 
-            {/* Apply for Marketing (Prominent Call to Action) */}
+            {/* Apply for Staff Contractor (Prominent Call to Action) */}
             <button
               onClick={() => {
                 setShowAppModal(true);
@@ -657,7 +722,7 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
               className="px-3.5 py-1.5 text-xs font-bold rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-500 hover:to-teal-500 text-white shadow-[0_0_18px_rgba(16,185,129,0.35)] hover:shadow-[0_0_24px_rgba(16,185,129,0.5)] border border-emerald-400/50 transition-all flex items-center gap-2 shrink-0 cursor-pointer group"
             >
               <Briefcase className="w-3.5 h-3.5 text-emerald-300 group-hover:rotate-12 transition-transform" />
-              <span>Apply for Marketing</span>
+              <span>Apply for Staff Contractor</span>
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping hidden sm:inline" />
             </button>
 
@@ -735,10 +800,10 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
               </button>
             )}
 
-            {/* Unlock with Password (Takes to staff studio with passcode 2526) */}
+            {/* Unlock with Password */}
             <button
               onClick={onOpenStaffPortal}
-              className="px-3 py-1.5 text-xs font-semibold rounded-xl bg-neutral-900 hover:bg-neutral-800 text-neutral-300 border border-neutral-700 transition-all flex items-center gap-1.5 shadow-sm"
+              className="px-3 py-1.5 text-xs font-semibold rounded-xl bg-neutral-900 hover:bg-neutral-800 text-neutral-300 border border-neutral-700 transition-all flex items-center gap-1.5 shadow-sm cursor-pointer"
               title="Unlock Staff Administration Studio"
             >
               <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
@@ -1030,6 +1095,14 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
               onRequireAuth={() => setShowAuthModal(true)}
             />
           </section>
+
+          {/* REAL-TIME WORLDWIDE COMMUNITY CHAT SECTION */}
+          <section className="space-y-6">
+            <CommunityLiveChat
+              currentUser={currentUserProfile}
+              onRequireAuth={() => setShowAuthModal(true)}
+            />
+          </section>
         </main>
       </div>
       )}
@@ -1264,9 +1337,9 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
               <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 flex items-center justify-center mx-auto">
                 <Briefcase className="w-6 h-6" />
               </div>
-              <h3 className="text-2xl font-serif font-bold text-white">Join MJJ Records Marketing Team</h3>
+              <h3 className="text-2xl font-serif font-bold text-white">Apply for Staff Contractor</h3>
               <p className="text-xs text-neutral-400 max-w-sm mx-auto">
-                Submit your application to work in marketing. Your application will be sent directly to the Staff Authorisation Centre.
+                Submit your application to become an official MJJ Records Staff Contractor. Your application will be reviewed directly by staff.
               </p>
             </div>
 
@@ -1300,13 +1373,28 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
 
               <div>
                 <label className="block text-xs font-semibold text-neutral-300 mb-1.5 uppercase tracking-wider">
-                  Reason for Wanting to Work in Marketing <span className="text-emerald-400">*</span>
+                  Desired Staff Role <span className="text-emerald-400">*</span>
+                </label>
+                <select
+                  value={appRole}
+                  onChange={(e) => setAppRole(e.target.value)}
+                  className="w-full px-4 py-2.5 rounded-xl bg-neutral-950 border border-neutral-700 text-emerald-300 focus:outline-none focus:border-emerald-500 text-sm font-sans"
+                >
+                  <option value="App Moderator">🛡️ App Moderator (Chat moderation, muting, warnings)</option>
+                  <option value="Newspaper Specialist">📰 Newspaper Specialist (Broadsheet publishing &amp; editing)</option>
+                  <option value="Challenge Maker">🏆 Challenge Maker (Contest curation &amp; bounties)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-neutral-300 mb-1.5 uppercase tracking-wider">
+                  Why do you want to join as a {appRole}? <span className="text-emerald-400">*</span>
                 </label>
                 <textarea
                   rows={4}
                   value={appReason}
                   onChange={(e) => setAppReason(e.target.value)}
-                  placeholder="Describe your motivation, experience, and why you want to work in marketing with MJJ Records..."
+                  placeholder={`Describe your experience and motivation to serve as a ${appRole}...`}
                   className="w-full px-4 py-2.5 rounded-xl bg-neutral-950 border border-neutral-700 text-white placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500 text-sm leading-relaxed"
                   required
                 />

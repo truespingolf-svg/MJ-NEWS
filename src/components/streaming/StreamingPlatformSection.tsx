@@ -19,11 +19,11 @@ import {
   Clock,
   ExternalLink,
 } from 'lucide-react';
-import { StreamingTrack, subscribeStreamingContent } from '../../services/firestoreStorage';
+import { StreamingTrack, subscribeStreamingContent, DEFAULT_STREAMING_TRACKS } from '../../services/firestoreStorage';
 import { getLocalMedia } from '../../services/localMediaRegistry';
 
 export const StreamingPlatformSection: React.FC = () => {
-  const [tracks, setTracks] = useState<StreamingTrack[]>([]);
+  const [tracks, setTracks] = useState<StreamingTrack[]>(DEFAULT_STREAMING_TRACKS);
   const [currentTrackIndex, setCurrentTrackIndex] = useState<number>(0);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [currentTime, setCurrentTime] = useState<number>(0);
@@ -126,16 +126,31 @@ export const StreamingPlatformSection: React.FC = () => {
     };
   }, [activeTrack]);
 
-  // Sync Audio Play/Pause
+  // Sync Audio & Video Playback when track changes or resolved URL updates
   useEffect(() => {
-    if (activeTrack?.mediaType === 'audio' && audioRef.current) {
-      if (isPlaying) {
+    if (isPlaying) {
+      window.dispatchEvent(new CustomEvent('mjj_stop_bg_audio'));
+      if (activeTrack?.mediaType === 'audio' && audioRef.current) {
         audioRef.current.play().catch(() => setIsPlaying(false));
-      } else {
-        audioRef.current.pause();
+      } else if (activeTrack?.mediaType === 'video' && videoRef.current) {
+        videoRef.current.play().catch(() => setIsPlaying(false));
       }
+    } else {
+      if (audioRef.current) audioRef.current.pause();
+      if (videoRef.current) videoRef.current.pause();
     }
-  }, [isPlaying, activeTrack]);
+  }, [isPlaying, activeTrack?.id, resolvedMediaUrl]);
+
+  // Listen for global stop event from site entrance music
+  useEffect(() => {
+    const handleStopVault = () => {
+      if (audioRef.current) audioRef.current.pause();
+      if (videoRef.current) videoRef.current.pause();
+      setIsPlaying(false);
+    };
+    window.addEventListener('mjj_stop_vault_audio', handleStopVault);
+    return () => window.removeEventListener('mjj_stop_vault_audio', handleStopVault);
+  }, []);
 
   const togglePlay = () => {
     setIsPlaying(!isPlaying);

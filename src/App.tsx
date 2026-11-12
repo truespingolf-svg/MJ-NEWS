@@ -47,6 +47,7 @@ export default function App() {
   // App mode: public portal (default) vs staff studio
   const [appMode, setAppMode] = useState<AppMode>('public');
   const [isStaffAuthenticated, setIsStaffAuthenticated] = useState<boolean>(false);
+  const [isTrialStaff, setIsTrialStaff] = useState<boolean>(false);
   const [showPasscodeModal, setShowPasscodeModal] = useState<boolean>(false);
   const [textureEnabled, setTextureEnabled] = useState<boolean>(true);
   const [isAiModalOpen, setIsAiModalOpen] = useState<boolean>(false);
@@ -463,7 +464,11 @@ export default function App() {
             {mainView === 'authorisation' && (
               <AuthorisationCentre
                 isUnlocked={isAuthorisationUnlocked}
-                onUnlock={() => setIsAuthorisationUnlocked(true)}
+                isTrialStaff={isTrialStaff}
+                onUnlock={(isTrial) => {
+                  setIsAuthorisationUnlocked(true);
+                  if (isTrial) setIsTrialStaff(true);
+                }}
                 onLock={() => setIsAuthorisationUnlocked(false)}
               />
             )}
@@ -604,12 +609,16 @@ export default function App() {
         </div>
       )}
 
-      {/* Staff Passcode Gate Modal (Code 2526) */}
+      {/* Staff Passcode Gate Modal (Code 2526: Full, 2520: Trial View-Only) */}
       <StaffPasscodeModal
         isOpen={showPasscodeModal}
         onClose={() => setShowPasscodeModal(false)}
-        onSuccess={() => {
+        onSuccess={(isTrial) => {
           setIsStaffAuthenticated(true);
+          setIsTrialStaff(!!isTrial);
+          if (isTrial) {
+            setIsAuthorisationUnlocked(true);
+          }
           setShowPasscodeModal(false);
           setAppMode('staff');
           setMainView('newspaper');
