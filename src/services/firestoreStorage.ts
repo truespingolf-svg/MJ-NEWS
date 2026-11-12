@@ -70,18 +70,7 @@ const LOCAL_STORAGE_BACKUP_KEY = 'mj_newspaper_studio_projects_v1';
 const ACTIVE_PROJECT_KEY = 'mj_newspaper_studio_active_id_v1';
 
 export function createStarterProject(): NewspaperProject {
-  const project = createNewProject('Untitled MJJ Broadsheet');
-  project.subtitle = 'Commemorative Newspaper Edition';
-
-  const cover = project.pages[0];
-  const page2 = createInteriorPage('layout-top-hero', 2);
-  page2.pageHeader.sectionTitle = 'HISTORIC ARCHIVES • PAGE 2';
-
-  const page3 = createInteriorPage('layout-horizontal-triptych', 3);
-  page3.pageHeader.sectionTitle = 'HISTORIC ARCHIVES • PAGE 3';
-
-  project.pages = [cover, page2, page3];
-  return project;
+  return null as any;
 }
 
 // -------------------------------------------------------------

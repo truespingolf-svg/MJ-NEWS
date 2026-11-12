@@ -26,6 +26,7 @@ import {
   unpublishFirestore,
   addAnnouncementFirestore,
   deleteAnnouncementFirestore,
+  deleteProjectFirestore,
 } from '../../services/firestoreStorage.ts';
 
 interface PublishedNewspaperState {
@@ -234,6 +235,18 @@ export const StaffPublishingManager: React.FC<StaffPublishingManagerProps> = ({
             Publish broadsheet newspapers to the main MJJ RECORDS public portal, review pending moderation submissions, and manage scrolling announcement ticker banners synced across all devices.
           </p>
         </div>
+        <button
+          onClick={async () => {
+            if (window.confirm("DELETE ALL PROJECTS? This cannot be undone.")) {
+              for (const p of libraryProjects) {
+                await deleteProjectFirestore(p.id);
+              }
+            }
+          }}
+          className="px-3 py-1.5 rounded-lg bg-rose-950/50 text-rose-400 border border-rose-500/30 text-xs font-bold hover:bg-rose-900/50 transition-all cursor-pointer"
+        >
+          DELETE ALL PROJECTS
+        </button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
