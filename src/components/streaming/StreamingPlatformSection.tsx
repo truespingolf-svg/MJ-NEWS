@@ -221,16 +221,14 @@ export const StreamingPlatformSection: React.FC = () => {
 
       {/* SCHEDULED VIDEO PREMIERE COUNTDOWN STAGE (IF SCHEDULED) */}
       {scheduledPremiere && premiereTimeLeft && (
-        <section className="relative rounded-3xl overflow-hidden border-2 border-red-600/70 shadow-[0_0_80px_rgba(220,38,38,0.35)] bg-gradient-to-b from-[#18060a] via-[#0e0305] to-[#080103] p-6 sm:p-10">
-          <div className="absolute top-0 right-0 w-96 h-96 bg-red-600/15 rounded-full blur-3xl pointer-events-none animate-pulse" />
-
+        <section className="relative rounded-2xl overflow-hidden border border-red-600/50 bg-[#100609] p-6 sm:p-8">
           <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
             {/* Left: Premiere Teaser Info & Live Countdown */}
             <div className="lg:col-span-7 space-y-4">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-600/20 border border-red-500/50 text-red-300 text-xs font-mono font-bold uppercase tracking-widest">
-                <Radio className="w-3.5 h-3.5 text-red-400 animate-pulse" />
+              <div className="inline-flex items-center gap-2 text-red-400 text-xs font-mono font-bold uppercase tracking-widest">
+                <Radio className="w-3.5 h-3.5 text-red-400" />
                 <span>
-                  {premiereTimeLeft.isLiveNow ? '🔴 BROADCASTING LIVE NOW' : 'WORLDWIDE SCHEDULED VIDEO PREMIERE'}
+                  {premiereTimeLeft.isLiveNow ? 'Broadcasting Live Now' : 'Worldwide Scheduled Video Premiere'}
                 </span>
               </div>
 
@@ -298,8 +296,8 @@ export const StreamingPlatformSection: React.FC = () => {
                   className="w-full h-full object-cover brightness-[0.7]"
                 />
                 <div className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center p-4 text-center">
-                  <div className="w-14 h-14 rounded-full bg-red-600/90 text-white flex items-center justify-center shadow-2xl animate-pulse">
-                    <Radio className="w-7 h-7" />
+                  <div className="w-12 h-12 rounded-full bg-red-600/90 text-white flex items-center justify-center shadow-xl">
+                    <Radio className="w-6 h-6" />
                   </div>
                   <span className="text-xs font-mono font-bold text-red-300 uppercase tracking-widest mt-2">
                     {premiereTimeLeft.isLiveNow ? 'LIVE BROADCAST READY' : 'COUNTDOWN IN PROGRESS'}

@@ -1,6 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { NewspaperProject } from '../../types/newspaper.ts';
-import { loadAllProjects } from '../../services/storage.ts';
+import { loadAllProjects, deleteAllProjects } from '../../services/storage.ts';
+import { FlipbookReader } from '../canvas/FlipbookReader.tsx';
+import { NewspaperPageRenderer } from '../canvas/NewspaperPageRenderer.tsx';
+import { downloadProjectPdf } from '../../services/pdfExport.ts';
+import { ensurePageEditableSlots } from '../../utils/newspaperLogic.ts';
 import {
   Radio,
   Clock,
@@ -10,8 +14,9 @@ import {
   CheckCircle2,
   BookOpen,
   Sparkles,
-  AlertCircle,
   Archive,
+  Eye,
+  Download,
 } from 'lucide-react';
 import {
   subscribeProjects,
@@ -26,7 +31,6 @@ import {
   unpublishFirestore,
   addAnnouncementFirestore,
   deleteAnnouncementFirestore,
-  deleteProjectFirestore,
 } from '../../services/firestoreStorage.ts';
 
 interface PublishedNewspaperState {
@@ -60,9 +64,14 @@ export const StaffPublishingManager: React.FC<StaffPublishingManagerProps> = ({
   const [submissions, setSubmissions] = useState<any[]>([]);
   const [libraryProjects, setLibraryProjects] = useState<NewspaperProject[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
-  const [durationMinutes, setDurationMinutes] = useState<number>(1440); // default 24 hours
+  const [durationMinutes, setDurationMinutes] = useState<number>(1440);
   const [newAnnouncementText, setNewAnnouncementText] = useState<string>('');
   const [statusMsg, setStatusMsg] = useState<string>('');
+  const [confirmDeleteAll, setConfirmDeleteAll] = useState<boolean>(false);
+  const [isDeletingAll, setIsDeletingAll] = useState<boolean>(false);
+  const [previewProject, setPreviewProject] = useState<NewspaperProject | null>(null);
+  const [pdfProject, setPdfProject] = useState<NewspaperProject | null>(null);
+  const pdfCaptureRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const loaded = loadAllProjects();
@@ -72,7 +81,6 @@ export const StaffPublishingManager: React.FC<StaffPublishingManagerProps> = ({
       setSelectedProjectId(activeList[0].id);
     }
 
-    // Connect to real-time Firestore listeners
     const unsubPub = subscribePublishedNewspaper((pub) => {
       setPublishedData(pub);
     });
@@ -105,10 +113,47 @@ export const StaffPublishingManager: React.FC<StaffPublishingManagerProps> = ({
     };
   }, []);
 
+  const toProjectObject = (item: any): NewspaperProject | null => {
+    const raw = item?.project || item?.projectData || (Array.isArray(item?.pages) ? item : null);
+    if (!raw || !Array.isArray(raw.pages) || raw.pages.length === 0) return null;
+    return {
+      ...raw,
+      title: raw.title || item.projectTitle || item.title || item.name || 'Broadsheet Edition',
+      pages: raw.pages.map((p: any, idx: number) =>
+        ensurePageEditableSlots({ ...p, pageNumber: p.pageNumber || idx + 1 }, p.layoutId)
+      ),
+    };
+  };
+
+  const handleTriggerPdf = (item: any) => {
+    const proj = toProjectObject(item);
+    if (!proj) return;
+    setPdfProject(proj);
+    setTimeout(async () => {
+      await downloadProjectPdf(proj, pdfCaptureRef.current);
+      setPdfProject(null);
+    }, 150);
+  };
+
   const handleDeletePublishedArchiveDoc = async (id: string) => {
     await deletePublishedNewspaperFirestore(id);
     setStatusMsg('Published document deleted from Archive.');
     setTimeout(() => setStatusMsg(''), 3000);
+  };
+
+  const handleConfirmDeleteAllProjects = async () => {
+    setIsDeletingAll(true);
+    try {
+      await deleteAllProjects();
+      setLibraryProjects([]);
+      setSelectedProjectId('');
+      setStatusMsg('All newspaper studio projects have been permanently deleted.');
+      setTimeout(() => setStatusMsg(''), 3500);
+      if (onRefreshData) onRefreshData();
+    } finally {
+      setIsDeletingAll(false);
+      setConfirmDeleteAll(false);
+    }
   };
 
   const activeProjectsList = libraryProjects.length > 0 ? libraryProjects : propProjects || [];
@@ -123,7 +168,6 @@ export const StaffPublishingManager: React.FC<StaffPublishingManagerProps> = ({
 
     try {
       const ok = await publishDirectFirestore(targetProject, Number(durationMinutes) || 1440);
-      // Background fallback
       fetch('/api/staff/publish', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -229,24 +273,132 @@ export const StaffPublishingManager: React.FC<StaffPublishingManagerProps> = ({
             <span>FIREBASE FIRESTORE REAL-TIME PUBLISHING CONTROL</span>
           </div>
           <h2 className="font-serif text-2xl font-bold text-white tracking-tight">
-            Live Newspaper Publishing &amp; Timer Schedule
+            Live Newspaper Publishing, Moderation &amp; Timer Schedule
           </h2>
           <p className="text-xs text-neutral-400 max-w-xl mt-1 leading-relaxed">
-            Publish broadsheet newspapers to the main MJJ RECORDS public portal, review pending moderation submissions, and manage scrolling announcement ticker banners synced across all devices.
+            Publish broadsheet newspapers to the main MJJ RECORDS public portal, preview and approve pending moderation submissions, and manage scrolling announcement ticker banners.
           </p>
         </div>
-        <button
-          onClick={async () => {
-            if (window.confirm("DELETE ALL PROJECTS? This cannot be undone.")) {
-              for (const p of libraryProjects) {
-                await deleteProjectFirestore(p.id);
-              }
-            }
-          }}
-          className="px-3 py-1.5 rounded-lg bg-rose-950/50 text-rose-400 border border-rose-500/30 text-xs font-bold hover:bg-rose-900/50 transition-all cursor-pointer"
-        >
-          DELETE ALL PROJECTS
-        </button>
+
+        {confirmDeleteAll ? (
+          <div className="flex items-center gap-2 bg-rose-950/90 border border-rose-500/60 px-3 py-2 rounded-xl">
+            <span className="text-xs font-bold text-rose-200">Delete all saved studio projects?</span>
+            <button
+              type="button"
+              disabled={isDeletingAll}
+              onClick={handleConfirmDeleteAllProjects}
+              className="px-3 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-black cursor-pointer disabled:opacity-50"
+            >
+              {isDeletingAll ? 'Deleting...' : 'Confirm Delete All'}
+            </button>
+            <button
+              type="button"
+              disabled={isDeletingAll}
+              onClick={() => setConfirmDeleteAll(false)}
+              className="px-2.5 py-1 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-semibold cursor-pointer"
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setConfirmDeleteAll(true)}
+            className="px-3.5 py-2 rounded-xl bg-rose-950/50 text-rose-400 border border-rose-500/30 text-xs font-bold hover:bg-rose-900/50 transition-all cursor-pointer flex items-center gap-1.5"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            <span>DELETE ALL PROJECTS</span>
+          </button>
+        )}
+      </div>
+
+      {/* PENDING NEWSPAPER MODERATION SUBMISSIONS QUEUE (Placed prominently above fold for moderators) */}
+      <div className="bg-[#121218] border border-amber-500/40 rounded-2xl p-6 space-y-4 shadow-xl">
+        <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-[#252532]">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-5 h-5 text-amber-400" />
+            <h3 className="font-serif font-bold text-base text-white">
+              Pending Newspaper Moderation Submissions ({submissions.length})
+            </h3>
+          </div>
+          <span className="text-[11px] font-mono text-amber-400 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30">
+            FIREBASE REAL-TIME QUEUE
+          </span>
+        </div>
+
+        {submissions.length === 0 ? (
+          <p className="text-xs text-neutral-500 font-mono italic">
+            No newspaper submissions awaiting moderation. When editors submit broadsheets from Newspaper Studio, they appear here in real time for 3D Flipbook review and instant publication.
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {submissions.map((sub) => {
+              const projObj = toProjectObject(sub);
+              return (
+                <div
+                  key={sub.id}
+                  className="p-4 bg-[#171722] border border-[#2e2e40] rounded-xl space-y-3 flex flex-col justify-between"
+                >
+                  <div>
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <span className="font-serif font-bold text-sm text-amber-300 truncate">
+                        {sub.projectTitle}
+                      </span>
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold shrink-0">
+                        {Math.round((sub.durationMinutes || 1440) / 60)}h Duration
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-neutral-400 font-mono">
+                      Submitted: {new Date(sub.submittedAt).toLocaleString()} ({sub.project?.pages?.length || 1} Pages)
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-[#252532]">
+                    {projObj && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => setPreviewProject(projObj)}
+                          className="py-2 px-3 bg-neutral-800 hover:bg-neutral-700 text-amber-300 font-bold text-xs rounded-xl transition-all flex items-center gap-1.5 cursor-pointer"
+                          title="Inspect broadsheet in 3D Flipbook"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          <span>Preview</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleTriggerPdf(sub)}
+                          className="py-2 px-3 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 font-bold text-xs rounded-xl transition-all flex items-center gap-1.5 cursor-pointer"
+                          title="Download submission as PDF"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          <span>PDF</span>
+                        </button>
+                      </>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleAcceptSubmission(sub.id)}
+                      className="flex-1 py-2 px-3 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <CheckCircle2 className="w-4 h-4 stroke-[3]" />
+                      <span>ACCEPT &amp; PUBLISH NOW</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleRejectSubmission(sub.id)}
+                      className="py-2 px-3 bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/30 font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-1 cursor-pointer"
+                      title="Reject Submission"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      <span>Reject</span>
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -267,6 +419,9 @@ export const StaffPublishingManager: React.FC<StaffPublishingManagerProps> = ({
                 onChange={(e) => setSelectedProjectId(e.target.value)}
                 className="w-full bg-[#181822] border border-[#2e2e3e] rounded-xl p-3 text-xs font-bold text-amber-400 focus:outline-none focus:border-amber-400 cursor-pointer"
               >
+                {activeProjectsList.length === 0 && (
+                  <option value="">No studio projects created yet</option>
+                )}
                 {activeProjectsList.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.title} ({p.pages.length} Pages)
@@ -302,7 +457,8 @@ export const StaffPublishingManager: React.FC<StaffPublishingManagerProps> = ({
 
             <button
               type="submit"
-              className="w-full py-3 bg-amber-400 hover:bg-amber-300 text-black font-bold text-xs rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer"
+              disabled={activeProjectsList.length === 0}
+              className="w-full py-3 bg-amber-400 hover:bg-amber-300 disabled:opacity-50 text-black font-bold text-xs rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer"
             >
               <Send className="w-4 h-4 stroke-[2.5]" />
               <span>PUBLISH TO PUBLIC PORTAL</span>
@@ -416,68 +572,6 @@ export const StaffPublishingManager: React.FC<StaffPublishingManagerProps> = ({
         </div>
       </div>
 
-      {/* PENDING NEWSPAPER MODERATION SUBMISSIONS QUEUE */}
-      <div className="bg-[#121218] border border-amber-500/30 rounded-2xl p-6 space-y-4 shadow-xl">
-        <div className="flex items-center justify-between pb-3 border-b border-[#252532]">
-          <div className="flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-amber-400" />
-            <h3 className="font-serif font-bold text-base text-white">
-              Pending Newspaper Moderation Submissions ({submissions.length})
-            </h3>
-          </div>
-          <span className="text-[11px] font-mono text-amber-400 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30">
-            FIREBASE REAL-TIME QUEUE
-          </span>
-        </div>
-
-        {submissions.length === 0 ? (
-          <p className="text-xs text-neutral-500 font-mono italic">
-            No newspaper submissions awaiting moderation. When editors submit broadsheets from Newspaper Studio, they will appear here in real-time for review and instant publication upon acceptance.
-          </p>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {submissions.map((sub) => (
-              <div
-                key={sub.id}
-                className="p-4 bg-[#171722] border border-[#2e2e40] rounded-xl space-y-3 flex flex-col justify-between"
-              >
-                <div>
-                  <div className="flex items-center justify-between gap-2 mb-1">
-                    <span className="font-serif font-bold text-sm text-amber-300 truncate">
-                      {sub.projectTitle}
-                    </span>
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold shrink-0">
-                      {Math.round(sub.durationMinutes / 60)}h Duration
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-neutral-400 font-mono">
-                    Submitted: {new Date(sub.submittedAt).toLocaleString()} ({sub.project?.pages?.length || 1} Pages)
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-2 pt-2 border-t border-[#252532]">
-                  <button
-                    onClick={() => handleAcceptSubmission(sub.id)}
-                    className="flex-1 py-2 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-                  >
-                    <CheckCircle2 className="w-4 h-4 stroke-[3]" />
-                    <span>ACCEPT &amp; PUBLISH NOW</span>
-                  </button>
-                  <button
-                    onClick={() => handleRejectSubmission(sub.id)}
-                    className="py-2 px-3 bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/30 font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-1 cursor-pointer"
-                    title="Reject Submission"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                    <span>Reject</span>
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
       {/* PUBLISHED DOCUMENTS ARCHIVE MANAGER */}
       <div className="bg-[#121218] border border-amber-500/30 rounded-2xl p-6 space-y-4 shadow-xl">
         <div className="flex items-center justify-between pb-3 border-b border-[#252532]">
@@ -493,7 +587,7 @@ export const StaffPublishingManager: React.FC<StaffPublishingManagerProps> = ({
         </div>
 
         <p className="text-xs text-neutral-400">
-          This archive displays all broadsheets that have been published through the Authorisation Centre. Staff can review and remove documents from the public portal's Archival Library at any time.
+          This archive displays all broadsheets that have been published through the Authorisation Centre. Staff can review, preview, download, and remove documents from the public portal's Archival Library at any time.
         </p>
 
         {publishedList.length === 0 ? (
@@ -502,51 +596,104 @@ export const StaffPublishingManager: React.FC<StaffPublishingManagerProps> = ({
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {publishedList.map((pubDoc) => (
-              <div
-                key={pubDoc.id}
-                className="p-4 bg-[#171722] border border-[#2e2e40] rounded-xl space-y-3 flex flex-col justify-between hover:border-amber-500/40 transition-colors"
-              >
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-serif font-bold text-sm text-white truncate">
-                      {pubDoc.title || pubDoc.projectTitle || pubDoc.name}
-                    </span>
-                    <span
-                      className={`text-[9px] font-mono font-bold px-2 py-0.5 rounded ${
-                        pubDoc.isActive
-                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                          : 'bg-neutral-800 text-neutral-400'
-                      }`}
+            {publishedList.map((pubDoc) => {
+              const projObj = toProjectObject(pubDoc);
+              return (
+                <div
+                  key={pubDoc.id}
+                  className="p-4 bg-[#171722] border border-[#2e2e40] rounded-xl space-y-3 flex flex-col justify-between hover:border-amber-500/40 transition-colors"
+                >
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-serif font-bold text-sm text-white truncate">
+                        {pubDoc.title || pubDoc.projectTitle || pubDoc.name}
+                      </span>
+                      <span
+                        className={`text-[9px] font-mono font-bold px-2 py-0.5 rounded ${
+                          pubDoc.isActive
+                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                            : 'bg-neutral-800 text-neutral-400'
+                        }`}
+                      >
+                        {pubDoc.isActive ? 'LIVE ON AIR' : 'ARCHIVED'}
+                      </span>
+                    </div>
+
+                    <div className="text-[11px] text-neutral-400 font-mono space-y-0.5">
+                      <div>Published: {pubDoc.publishedAt ? new Date(pubDoc.publishedAt).toLocaleString() : 'Recently'}</div>
+                      <div>Pages: {pubDoc.pages?.length || 1} Broadsheet Pages</div>
+                    </div>
+                  </div>
+
+                  <div className="pt-2 border-t border-[#252532] flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5">
+                      {projObj && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => setPreviewProject(projObj)}
+                            className="p-1.5 bg-neutral-800 hover:bg-neutral-700 text-amber-300 rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer"
+                            title="Preview Broadsheet"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>Preview</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleTriggerPdf(pubDoc)}
+                            className="p-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer"
+                            title="Download PDF"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => handleDeletePublishedArchiveDoc(pubDoc.id)}
+                      className="p-1.5 bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/30 font-bold text-xs rounded-lg transition-all flex items-center gap-1 cursor-pointer"
+                      title="Remove from Public Archival Library"
                     >
-                      {pubDoc.isActive ? 'LIVE ON AIR' : 'ARCHIVED'}
-                    </span>
-                  </div>
-
-                  <div className="text-[11px] text-neutral-400 font-mono space-y-0.5">
-                    <div>Published: {pubDoc.publishedAt ? new Date(pubDoc.publishedAt).toLocaleString() : 'Recently'}</div>
-                    <div>Pages: {pubDoc.pages?.length || 1} Broadsheet Pages</div>
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Delete Archive</span>
+                    </button>
                   </div>
                 </div>
-
-                <div className="pt-2 border-t border-[#252532] flex items-center justify-between gap-2">
-                  <span className="text-[10px] text-amber-400 font-mono">
-                    ID: {pubDoc.id?.slice(0, 14)}...
-                  </span>
-                  <button
-                    onClick={() => handleDeletePublishedArchiveDoc(pubDoc.id)}
-                    className="p-1.5 bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/30 font-bold text-xs rounded-lg transition-all flex items-center gap-1 cursor-pointer"
-                    title="Remove from Public Archival Library"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span>Delete Archive</span>
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
+
+      {/* 3D Flipbook Preview Modal for Moderation & Archive */}
+      {previewProject && (
+        <FlipbookReader
+          project={previewProject}
+          onClose={() => setPreviewProject(null)}
+        />
+      )}
+
+      {/* Offscreen PDF capture container */}
+      {pdfProject && (
+        <div
+          ref={pdfCaptureRef}
+          className="fixed left-[-12000px] top-0 w-[800px] opacity-100 pointer-events-none"
+          aria-hidden="true"
+        >
+          {pdfProject.pages.map((p) => (
+            <div key={p.id} className="export-page-target newspaper-print-page bg-white">
+              <NewspaperPageRenderer
+                page={p}
+                selectedElementId={null}
+                selectedImageSlot={null}
+                onSelectText={() => {}}
+                onSelectImage={() => {}}
+                previewMode={true}
+              />
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };

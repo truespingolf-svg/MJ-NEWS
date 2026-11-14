@@ -75,6 +75,7 @@
         "photoURL": { "type": "string" },
         "reactedNewspaperIds": { "type": "array" },
         "votedUserIds": { "type": "array" },
+        "lastVoteTimestamp": { "type": "number" },
         "tickets": { "type": "array" },
         "assignedCodes": { "type": "array" },
         "createdAt": { "type": "string" },
@@ -94,20 +95,6 @@
         "redeemedAt": { "type": "string" }
       },
       "required": ["id", "code", "discordUser"]
-    },
-    "MarketingApplication": {
-      "title": "Marketing Application",
-      "description": "Applications submitted to work in marketing",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "discordUser": { "type": "string" },
-        "fullName": { "type": "string" },
-        "reason": { "type": "string" },
-        "submittedAt": { "type": "string" },
-        "status": { "type": "string" }
-      },
-      "required": ["id", "discordUser", "reason"]
     },
     "CommunityChallenge": {
       "title": "Community Challenge",
@@ -174,10 +161,6 @@
     "/redemptions/{redemptionId}": {
       "schema": { "$ref": "#/entities/Redemption" },
       "description": "Redemptions collection"
-    },
-    "/marketingApplications/{appId}": {
-      "schema": { "$ref": "#/entities/MarketingApplication" },
-      "description": "Marketing applications collection"
     },
     "/challenges/{challengeId}": {
       "schema": { "$ref": "#/entities/CommunityChallenge" },

@@ -15,6 +15,7 @@ export const DocumentForm: React.FC<DocumentFormProps> = ({
   onApplyBranding,
 }) => {
   const [activeTab, setActiveTab] = useState<'details' | 'body' | 'signatories' | 'theme'>('details');
+  const [uploadError, setUploadError] = useState<string>('');
   const logoInputRef = useRef<HTMLInputElement>(null);
 
   const handleSmartPolish = (field: 'mainBodyParagraph1' | 'mainBodyParagraph2' | 'mainBodyParagraph3' | 'subjectLine') => {
@@ -34,9 +35,10 @@ export const DocumentForm: React.FC<DocumentFormProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
+    setUploadError('');
     const MAX_25MB = 25 * 1024 * 1024;
     if (file.size > MAX_25MB) {
-      alert('File size exceeds 25MB limit. Please select a file under 25MB.');
+      setUploadError('File size exceeds 25MB limit. Please select a file under 25MB.');
       e.target.value = '';
       return;
     }
@@ -542,6 +544,11 @@ export const DocumentForm: React.FC<DocumentFormProps> = ({
                   </button>
                 )}
               </div>
+              {uploadError && (
+                <div className="mt-2 p-2 rounded bg-rose-500/15 border border-rose-500/30 text-[11px] text-rose-300">
+                  {uploadError}
+                </div>
+              )}
             </div>
           </div>
         )}

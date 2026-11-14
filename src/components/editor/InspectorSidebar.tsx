@@ -6,8 +6,8 @@ import {
   FontChoice,
   TextAlign,
   ImageFilter,
-  PageLayoutId,
 } from '../../types/newspaper.ts';
+import { optimizeNewspaperImage } from '../../utils/imageOptimizer.ts';
 import {
   Upload,
   Image as ImageIcon,
@@ -16,15 +16,11 @@ import {
   AlignCenter,
   AlignRight,
   AlignJustify,
-  Bold,
   Italic,
   RotateCcw,
-  Sparkles,
-  Sliders,
-  Layers,
   Settings,
-  Eye,
   Columns,
+  AlertCircle,
 } from 'lucide-react';
 
 interface InspectorSidebarProps {
@@ -51,6 +47,8 @@ export const InspectorSidebar: React.FC<InspectorSidebarProps> = ({
   onDeselect,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadError, setUploadError] = useState<string>('');
+  const [isOptimizing, setIsOptimizing] = useState<boolean>(false);
 
   // Find currently selected text element if any
   let selectedText: TextElement | null = null;
@@ -68,31 +66,34 @@ export const InspectorSidebar: React.FC<InspectorSidebarProps> = ({
     ? page.images[selectedImageSlot]
     : null;
 
-  // Handle local file upload with max 25MB limit
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Handle local file upload with compression and max 25MB limit
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !selectedImageSlot) return;
 
+    setUploadError('');
     const MAX_25MB = 25 * 1024 * 1024;
     if (file.size > MAX_25MB) {
-      alert('File size exceeds 25MB limit. Please select a file under 25MB.');
+      setUploadError('File size exceeds 25MB limit. Please select a smaller image.');
       e.target.value = '';
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const dataUrl = event.target?.result as string;
-      if (dataUrl) {
+    setIsOptimizing(true);
+    try {
+      const optimizedDataUrl = await optimizeNewspaperImage(file, 1400, 0.82);
+      if (optimizedDataUrl) {
         onUpdateImage(selectedImageSlot, {
-          url: dataUrl,
+          url: optimizedDataUrl,
           credit: file.name.replace(/\.[^/.]+$/, ''),
         });
       }
-    };
-    reader.readAsDataURL(file);
-    // Reset input
-    e.target.value = '';
+    } catch {
+      setUploadError('Could not process that image file. Please try another JPEG or PNG.');
+    } finally {
+      setIsOptimizing(false);
+      e.target.value = '';
+    }
   };
 
   return (
@@ -152,22 +153,29 @@ export const InspectorSidebar: React.FC<InspectorSidebarProps> = ({
             {/* Upload Button */}
             <div>
               <label className="text-xs font-medium text-neutral-300 block mb-1.5">
-                Upload Photograph From Computer
+                Upload Photograph From Device
               </label>
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*,.png,.jpg,.jpeg,.webp,.gif,.svg,.pdf,.docx,.txt"
+                accept="image/*,.png,.jpg,.jpeg,.webp,.gif,.svg"
                 onChange={handleFileUpload}
                 className="hidden"
               />
               <button
                 onClick={() => fileInputRef.current?.click()}
-                className="w-full flex items-center justify-center gap-2 py-2.5 px-4 text-xs font-semibold bg-amber-400 hover:bg-amber-300 text-black rounded-lg shadow transition-colors"
+                disabled={isOptimizing}
+                className="w-full flex items-center justify-center gap-2 py-2.5 px-4 text-xs font-semibold bg-amber-400 hover:bg-amber-300 disabled:opacity-60 text-black rounded-lg shadow transition-colors cursor-pointer"
               >
                 <Upload className="w-4 h-4 stroke-[2.5]" />
-                Choose Image File (.jpg, .png, .webp)
+                {isOptimizing ? 'Optimizing Photo...' : 'Choose Image File (.jpg, .png, .webp)'}
               </button>
+              {uploadError && (
+                <div className="mt-2 p-2 rounded-lg bg-rose-500/15 border border-rose-500/40 text-rose-300 text-[11px] flex items-center gap-1.5">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>{uploadError}</span>
+                </div>
+              )}
             </div>
 
             {/* Zoom Slider */}

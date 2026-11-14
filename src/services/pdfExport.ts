@@ -2,16 +2,37 @@ import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import { NewspaperProject } from '../types/newspaper.ts';
 
-/**
- * Normalizes all modern CSS colors (like oklch in Tailwind v4)
- * to standard RGB/Hex so that html2canvas can parse them without throwing an error.
- */
-function sanitizeNodeColors(root: HTMLElement) {
-  const dummyCanvas = document.createElement('canvas');
-  dummyCanvas.width = 1;
-  dummyCanvas.height = 1;
-  const ctx = dummyCanvas.getContext('2d');
+const MODERN_COLOR_RE = /(oklch|oklab|lch|lab|color-mix|color\()/i;
 
+/**
+ * Resolves any modern CSS color expression (oklch, oklab, color-mix, etc.)
+ * into standard hex/rgb using a 1x1 2D canvas context so html2canvas never throws.
+ */
+function resolveColorToRgb(
+  ctx: CanvasRenderingContext2D | null,
+  value: string,
+  fallback: string
+): string {
+  if (!value || !MODERN_COLOR_RE.test(value)) return value;
+  if (!ctx) return fallback;
+  try {
+    ctx.fillStyle = fallback;
+    ctx.fillStyle = value;
+    const resolved = ctx.fillStyle;
+    if (typeof resolved === 'string' && !MODERN_COLOR_RE.test(resolved)) {
+      return resolved;
+    }
+  } catch {
+    // fallback below
+  }
+  return fallback;
+}
+
+/**
+ * Normalizes all modern CSS colors (like oklch / oklab / color-mix in Tailwind v4)
+ * to standard RGB/Hex on cloned DOM nodes and strips CSS color functions from <style> tags.
+ */
+function sanitizeNodeColors(root: HTMLElement, ctx: CanvasRenderingContext2D | null) {
   const elements = [root, ...Array.from(root.querySelectorAll<HTMLElement>('*'))];
 
   for (const el of elements) {
@@ -25,33 +46,89 @@ function sanitizeNodeColors(root: HTMLElement) {
       'borderLeftColor',
       'borderRightColor',
       'outlineColor',
+      'textDecorationColor',
     ];
 
     for (const prop of props) {
       const val = (computed as any)[prop];
-      if (typeof val === 'string' && val.includes('oklch')) {
-        let safeColor = '#1a1918';
-        if (prop.toLowerCase().includes('background')) {
-          safeColor = '#faf7f0';
-        }
-        if (ctx) {
-          try {
-            ctx.fillStyle = safeColor;
-            ctx.fillStyle = val;
-            safeColor = ctx.fillStyle;
-          } catch {
-            // fallback
-          }
-        }
-        (el.style as any)[prop] = safeColor;
+      if (typeof val === 'string' && MODERN_COLOR_RE.test(val)) {
+        const fallback = prop.toLowerCase().includes('background') ? '#faf7f0' : '#1a1918';
+        (el.style as any)[prop] = resolveColorToRgb(ctx, val, fallback);
       }
+    }
+
+    if (typeof computed.boxShadow === 'string' && MODERN_COLOR_RE.test(computed.boxShadow)) {
+      el.style.boxShadow = 'none';
+    }
+    if (typeof computed.backgroundImage === 'string' && MODERN_COLOR_RE.test(computed.backgroundImage)) {
+      el.style.backgroundImage = 'none';
     }
   }
 }
 
+async function waitForImagesAndFonts(container: HTMLElement): Promise<void> {
+  try {
+    if (document.fonts && document.fonts.ready) {
+      await Promise.race([
+        document.fonts.ready,
+        new Promise((resolve) => setTimeout(resolve, 2500)),
+      ]);
+    }
+  } catch {
+    // ignore
+  }
+
+  const imgs = Array.from(container.querySelectorAll<HTMLImageElement>('img'));
+  await Promise.all(
+    imgs.map(
+      (img) =>
+        new Promise<void>((resolve) => {
+          if (img.complete) {
+            resolve();
+            return;
+          }
+          const timer = setTimeout(resolve, 3500);
+          img.addEventListener(
+            'load',
+            () => {
+              clearTimeout(timer);
+              resolve();
+            },
+            { once: true }
+          );
+          img.addEventListener(
+            'error',
+            () => {
+              clearTimeout(timer);
+              resolve();
+            },
+            { once: true }
+          );
+        })
+    )
+  );
+}
+
+function triggerSinglePdfDownload(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.rel = 'noopener noreferrer';
+  link.style.display = 'none';
+  document.body.appendChild(link);
+  link.click();
+  setTimeout(() => {
+    if (link.parentNode) {
+      link.parentNode.removeChild(link);
+    }
+    URL.revokeObjectURL(url);
+  }, 8000);
+}
+
 /**
- * Exports a newspaper project straight to PDF and initiates download in the browser.
- * Tested and optimized for mobile devices, iPads, and high-DPI displays.
+ * Exports a newspaper project straight to a multi-page PDF and triggers a clean download
+ * across desktop browsers, mobile browsers, PWAs, and iframe sandboxes.
  */
 export async function downloadProjectPdf(
   project: NewspaperProject,
@@ -66,12 +143,16 @@ export async function downloadProjectPdf(
       targetPages = Array.from(
         containerElement.querySelectorAll<HTMLElement>('.export-page-target')
       );
+      if (!targetPages.length) {
+        targetPages = Array.from(
+          containerElement.querySelectorAll<HTMLElement>('.newsprint-paper')
+        );
+      }
     }
 
     if (!targetPages.length) {
-      // Find pages currently in DOM if container was not provided
       targetPages = Array.from(
-        document.querySelectorAll<HTMLElement>('.newsprint-paper, .export-page-target')
+        document.querySelectorAll<HTMLElement>('.export-page-target, .newsprint-paper')
       );
     }
 
@@ -79,7 +160,10 @@ export async function downloadProjectPdf(
       throw new Error('No printable pages found.');
     }
 
-    // Standard A4 portrait
+    if (containerElement) {
+      await waitForImagesAndFonts(containerElement);
+    }
+
     const pdf = new jsPDF({
       orientation: 'portrait',
       unit: 'mm',
@@ -89,9 +173,12 @@ export async function downloadProjectPdf(
 
     const pdfWidth = pdf.internal.pageSize.getWidth();
     const pdfHeight = pdf.internal.pageSize.getHeight();
+    const safeScale = Math.min(1.6, Math.max(1.25, window.devicePixelRatio || 1.35));
 
-    // Use safe scaling factor to avoid exceeding mobile Safari / Chrome canvas buffer limits
-    const safeScale = Math.min(1.5, Math.max(1, window.devicePixelRatio || 1.25));
+    const dummyCanvas = document.createElement('canvas');
+    dummyCanvas.width = 1;
+    dummyCanvas.height = 1;
+    const colorCtx = dummyCanvas.getContext('2d');
 
     let renderedPagesCount = 0;
 
@@ -103,85 +190,74 @@ export async function downloadProjectPdf(
         const canvas = await html2canvas(pageEl, {
           scale: safeScale,
           useCORS: true,
-          allowTaint: true,
+          allowTaint: false,
           imageTimeout: 10000,
           logging: false,
           backgroundColor: '#faf7f0',
-          onclone: (clonedDoc) => {
-            // Replace any style text containing oklch
+          onclone: (clonedDoc, clonedTarget) => {
+            // Strip Tailwind v4 modern CSS color functions from cloned style sheets
             clonedDoc.querySelectorAll('style').forEach((s) => {
-              if (s.textContent && s.textContent.includes('oklch')) {
-                s.textContent = s.textContent.replace(/oklch\([^)]+\)/g, '#2b2926');
+              if (s.textContent && MODERN_COLOR_RE.test(s.textContent)) {
+                s.textContent = s.textContent
+                  .replace(/oklch\([^)]+\)/gi, '#2b2926')
+                  .replace(/oklab\([^)]+\)/gi, '#2b2926')
+                  .replace(/color-mix\([^)]+\)/gi, '#2b2926')
+                  .replace(/lch\([^)]+\)/gi, '#2b2926')
+                  .replace(/lab\([^)]+\)/gi, '#2b2926');
               }
             });
 
-            // Sanitize all elements in cloned target
-            const clonedTargets = clonedDoc.querySelectorAll<HTMLElement>('.export-page-target, .newsprint-paper');
-            clonedTargets.forEach((t) => sanitizeNodeColors(t));
+            // Force ancestor containers to full opacity and visible layout so capture is never blank
+            let anc: HTMLElement | null = clonedTarget;
+            while (anc && anc !== clonedDoc.body) {
+              anc.style.opacity = '1';
+              anc.style.visibility = 'visible';
+              anc = anc.parentElement;
+            }
+
+            if (clonedTarget) {
+              sanitizeNodeColors(clonedTarget, colorCtx);
+            }
+            const extraTargets = clonedDoc.querySelectorAll<HTMLElement>(
+              '.export-page-target, .newsprint-paper'
+            );
+            extraTargets.forEach((t) => {
+              t.style.opacity = '1';
+              sanitizeNodeColors(t, colorCtx);
+            });
           },
         });
 
         const imgData = canvas.toDataURL('image/jpeg', 0.92);
-
         if (renderedPagesCount > 0) {
           pdf.addPage();
         }
-
         pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight, undefined, 'FAST');
         renderedPagesCount++;
       } catch (pageErr) {
-        console.warn(`Warning rendering page ${i + 1}:`, pageErr);
-        // Fallback: still add page so document sequence is preserved
-        if (renderedPagesCount > 0) {
-          pdf.addPage();
-        }
-        pdf.text(`MJJ Records Broadsheet - Page ${i + 1}`, 15, 20);
-        renderedPagesCount++;
+        console.error(`Page ${i + 1} PDF render warning:`, pageErr);
       }
     }
 
-    onProgress?.('Generating PDF file download...');
-    const filename = `${(project.title || 'mjj_records_newspaper').toLowerCase().replace(/[^a-z0-9]/g, '_')}_broadsheet.pdf`;
-
-    // 1. Try native jsPDF save
-    try {
-      pdf.save(filename);
-    } catch (saveErr) {
-      console.warn('Native pdf.save failed, using blob link fallback:', saveErr);
+    if (renderedPagesCount === 0) {
+      throw new Error('Could not render any broadsheet pages into PDF.');
     }
 
-    // 2. Dual-trigger Blob link fallback for mobile Safari, iPads, and iframe environments
-    try {
-      const blob = pdf.output('blob');
-      const blobUrl = URL.createObjectURL(blob);
-      const downloadAnchor = document.createElement('a');
-      downloadAnchor.href = blobUrl;
-      downloadAnchor.download = filename;
-      downloadAnchor.target = '_blank';
-      document.body.appendChild(downloadAnchor);
-      downloadAnchor.click();
-      setTimeout(() => {
-        if (document.body.contains(downloadAnchor)) {
-          document.body.removeChild(downloadAnchor);
-        }
-        URL.revokeObjectURL(blobUrl);
-      }, 2000);
-    } catch (blobErr) {
-      console.warn('Blob download trigger note:', blobErr);
-    }
+    onProgress?.('Finalizing PDF download...');
+    const safeTitle = (project?.title || 'mjj_broadsheet')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '');
+    const fileName = `${safeTitle || 'mjj_broadsheet'}_broadsheet.pdf`;
 
-    onProgress?.('Downloaded successfully!');
+    const pdfBlob = pdf.output('blob');
+    triggerSinglePdfDownload(pdfBlob, fileName);
+
+    onProgress?.('PDF saved successfully!');
     return true;
   } catch (err) {
-    console.error('Direct PDF export error:', err);
-    onProgress?.('Opening print dialog fallback...');
-    setTimeout(() => {
-      try {
-        window.print();
-      } catch {
-        // ignore
-      }
-    }, 400);
+    console.error('PDF export failure:', err);
+    onProgress?.('PDF export failed. Please try again.');
     return false;
   }
 }

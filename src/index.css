@@ -25,6 +25,13 @@
   .font-sans-studio {
     font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
   }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
 }
 
 @keyframes marquee {
@@ -42,34 +49,35 @@
   to { transform: rotate(0deg); }
 }
 
-@keyframes float-slow {
-  0%, 100% { transform: translateY(0px) rotate(0deg); }
-  50% { transform: translateY(-12px) rotate(3deg); }
+@keyframes panel-reveal {
+  0% {
+    opacity: 0;
+    transform: translateY(10px) scale(0.992);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
-@keyframes float-medium {
-  0%, 100% { transform: translateY(0px) scale(1); }
-  50% { transform: translateY(-18px) scale(1.04); }
+@keyframes fade-in {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
 }
 
-@keyframes pulse-glow {
-  0%, 100% { opacity: 0.3; transform: scale(1); }
-  50% { opacity: 0.7; transform: scale(1.15); }
+@keyframes blood-drip {
+  0%, 100% { transform: scaleY(0.88); opacity: 0.85; }
+  50% { transform: scaleY(1.12); opacity: 1; }
 }
 
-@keyframes shimmer-gold {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
-}
-
-@keyframes scanline {
-  0% { transform: translateY(-100%); }
-  100% { transform: translateY(1000%); }
+@keyframes spotlight-drift {
+  0%, 100% { transform: translate3d(-4%, -2%, 0) scale(1); }
+  50% { transform: translate3d(4%, 2%, 0) scale(1.06); }
 }
 
 .animate-marquee {
   display: inline-block;
-  animation: marquee 25s linear infinite;
+  animation: marquee 28s linear infinite;
 }
 
 .animate-marquee:hover {
@@ -77,33 +85,56 @@
 }
 
 .animate-spin-vinyl {
-  animation: spin-vinyl 3.5s linear infinite;
+  animation: spin-vinyl 4s linear infinite;
 }
 
 .animate-spin-vinyl-reverse {
   animation: spin-vinyl-reverse 6s linear infinite;
 }
 
-.animate-float-slow {
-  animation: float-slow 6s ease-in-out infinite;
+.animate-spin-slow {
+  animation: spin-vinyl 10s linear infinite;
 }
 
-.animate-float-medium {
-  animation: float-medium 8s ease-in-out infinite;
+.animate-panel-reveal {
+  animation: panel-reveal 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-.animate-pulse-glow {
-  animation: pulse-glow 4s ease-in-out infinite;
+.animate-fade-in {
+  animation: fade-in 200ms ease-out both;
 }
 
-.animate-shimmer {
-  background: linear-gradient(90deg, rgba(251,191,36,0) 0%, rgba(251,191,36,0.3) 50%, rgba(251,191,36,0) 100%);
-  background-size: 200% 100%;
-  animation: shimmer-gold 3s infinite;
+.animate-blood-drip {
+  transform-origin: top center;
+  animation: blood-drip 2.2s ease-in-out infinite;
 }
 
-.animate-scanline {
-  animation: scanline 2.5s ease-in-out infinite;
+.animate-spotlight-drift {
+  animation: spotlight-drift 14s ease-in-out infinite;
+}
+
+.interactive-card {
+  transition: transform 240ms cubic-bezier(0.16, 1, 0.3, 1), border-color 220ms ease, background-color 220ms ease, box-shadow 240ms ease;
+}
+
+.interactive-card:hover {
+  transform: translateY(-2px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-marquee,
+  .animate-spin-vinyl,
+  .animate-spin-vinyl-reverse,
+  .animate-spin-slow,
+  .animate-panel-reveal,
+  .animate-fade-in,
+  .animate-blood-drip,
+  .animate-spotlight-drift {
+    animation: none !important;
+  }
+  .interactive-card:hover {
+    transform: none;
+  }
 }
 
 /* Custom subtle scrollbar for dark studio chrome */

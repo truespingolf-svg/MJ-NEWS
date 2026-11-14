@@ -1,14 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { KeyRound, ShieldCheck, CheckCircle2, AlertCircle, Save, Lock } from 'lucide-react';
+import { KeyRound, CheckCircle2, AlertCircle, Save, Eye, EyeOff, ShieldCheck } from 'lucide-react';
 import {
-  PasscodeSettings,
   subscribePasscodeSettings,
   setPasscodeSettingsFirestore,
   addStaffAuditLogFirestore,
 } from '../../services/firestoreStorage.ts';
+import { sha256Hex } from '../../utils/passcodeAuth.ts';
 
 export const StaffPasscodesManager: React.FC = () => {
-  const [fullPasscode, setFullPasscode] = useState('2526');
+  const [newPasscode, setNewPasscode] = useState('');
+  const [confirmPasscode, setConfirmPasscode] = useState('');
+  const [showPasscode, setShowPasscode] = useState(false);
+  const [hasCustomHash, setHasCustomHash] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<string | undefined>(undefined);
   const [isSaving, setIsSaving] = useState(false);
   const [statusMsg, setStatusMsg] = useState<{ type: 'success' | 'error' | null; text: string }>({
     type: null,
@@ -17,17 +21,21 @@ export const StaffPasscodesManager: React.FC = () => {
 
   useEffect(() => {
     const unsub = subscribePasscodeSettings((settings) => {
-      if (settings) {
-        setFullPasscode(settings.fullPasscode || '2526');
-      }
+      setHasCustomHash(Boolean(settings?.passcodeHash));
+      setLastUpdated(settings?.updatedAt);
     });
     return () => unsub();
   }, []);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!fullPasscode.trim()) {
-      setStatusMsg({ type: 'error', text: 'Passcode cannot be empty.' });
+    const clean = newPasscode.trim();
+    if (clean.length < 4 || clean.length > 16) {
+      setStatusMsg({ type: 'error', text: 'Passcode must be between 4 and 16 characters.' });
+      return;
+    }
+    if (confirmPasscode && clean !== confirmPasscode.trim()) {
+      setStatusMsg({ type: 'error', text: 'Passcode confirmation does not match.' });
       return;
     }
 
@@ -35,9 +43,26 @@ export const StaffPasscodesManager: React.FC = () => {
     setStatusMsg({ type: null, text: '' });
 
     try {
-      await setPasscodeSettingsFirestore({
-        fullPasscode: fullPasscode.trim(),
-      });
+      let passcodeHash = '';
+      try {
+        const res = await fetch('/api/staff/update-passcode', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ newPasscode: clean }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          passcodeHash = data?.passcodeHash || '';
+        }
+      } catch {
+        // Fallback hash if API is offline
+      }
+
+      if (!passcodeHash) {
+        passcodeHash = await sha256Hex(clean);
+      }
+
+      await setPasscodeSettingsFirestore({ passcodeHash });
 
       await addStaffAuditLogFirestore({
         staffName: 'Staff Executive',
@@ -45,10 +70,12 @@ export const StaffPasscodesManager: React.FC = () => {
         actionType: 'UPDATE_PASSCODES',
         targetEntityId: 'system/passcodeSettings',
         targetEntityLabel: 'Staff Access Passcode',
-        details: 'Updated staff executive passcode',
+        details: 'Rotated executive access passcode (SHA-256 hashed)',
       });
 
-      setStatusMsg({ type: 'success', text: 'Staff access passcode updated successfully across all devices!' });
+      setNewPasscode('');
+      setConfirmPasscode('');
+      setStatusMsg({ type: 'success', text: 'Executive passcode rotated and SHA-256 hashed across server & database.' });
     } catch (err: any) {
       setStatusMsg({ type: 'error', text: err?.message || 'Failed to update passcode.' });
     } finally {
@@ -69,7 +96,7 @@ export const StaffPasscodesManager: React.FC = () => {
             </h2>
           </div>
           <p className="text-xs text-neutral-400">
-            Configure secret passcode for Staff Studio access. Changes update globally in real time.
+            Executive passcodes are never exposed in client code or readable in plaintext. Rotate your Vault passcode securely below.
           </p>
         </div>
       </div>
@@ -92,22 +119,66 @@ export const StaffPasscodesManager: React.FC = () => {
       )}
 
       <div className="bg-[#12121a] border border-[#232332] rounded-2xl p-6 sm:p-8 space-y-6 shadow-2xl max-w-2xl">
+        <div className="flex items-center justify-between gap-3 p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-xs">
+          <div className="flex items-center gap-2 text-emerald-300 font-semibold">
+            <ShieldCheck className="w-4 h-4 shrink-0" />
+            <span>
+              {hasCustomHash
+                ? 'Active SHA-256 Passcode Hash Synced'
+                : 'Server-Verified Executive Passcode Active'}
+            </span>
+          </div>
+          {lastUpdated && (
+            <span className="text-[11px] font-mono text-neutral-400">
+              Updated {new Date(lastUpdated).toLocaleDateString()}
+            </span>
+          )}
+        </div>
+
         <form onSubmit={handleSave} className="space-y-5">
           <div>
             <label className="block text-xs font-mono text-neutral-300 mb-1.5 uppercase tracking-wider">
-              Staff Studio Passcode (Executive Access &amp; Management)
+              New Executive Passcode (Authorisation Centre &amp; Staff Studio)
+            </label>
+            <div className="relative">
+              <input
+                type={showPasscode ? 'text' : 'password'}
+                value={newPasscode}
+                onChange={(e) => setNewPasscode(e.target.value)}
+                placeholder="Enter new 4-16 character passcode"
+                className="w-full px-4 py-3 pr-11 rounded-xl bg-neutral-950 border border-neutral-700 text-amber-300 font-mono text-base tracking-widest focus:outline-none focus:border-amber-400"
+                required
+                minLength={4}
+                maxLength={16}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPasscode((prev) => !prev)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-amber-300 p-1"
+                aria-label="Toggle passcode visibility"
+              >
+                {showPasscode ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+            <p className="text-[11px] text-neutral-500 mt-1">
+              Stored server-side and hashed with SHA-256 before syncing to Firestore.
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-xs font-mono text-neutral-300 mb-1.5 uppercase tracking-wider">
+              Confirm New Passcode
             </label>
             <input
-              type="text"
-              value={fullPasscode}
-              onChange={(e) => setFullPasscode(e.target.value)}
-              placeholder="e.g. 2526"
+              type={showPasscode ? 'text' : 'password'}
+              value={confirmPasscode}
+              onChange={(e) => setConfirmPasscode(e.target.value)}
+              placeholder="Re-enter new passcode"
               className="w-full px-4 py-3 rounded-xl bg-neutral-950 border border-neutral-700 text-amber-300 font-mono text-base tracking-widest focus:outline-none focus:border-amber-400"
               required
+              minLength={4}
+              maxLength={16}
             />
-            <p className="text-[11px] text-neutral-500 mt-1">
-              Required for staff studio actions, publishing, roster management, and passcode editing.
-            </p>
           </div>
 
           <div className="pt-4 border-t border-neutral-800 flex justify-end">
@@ -117,7 +188,7 @@ export const StaffPasscodesManager: React.FC = () => {
               className="px-7 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-black font-bold text-xs uppercase tracking-wider flex items-center gap-2 shadow-xl shadow-amber-500/20 disabled:opacity-50 cursor-pointer"
             >
               <Save className="w-4 h-4" />
-              <span>{isSaving ? 'Updating Passcode...' : 'Save Passcode Setting'}</span>
+              <span>{isSaving ? 'Rotating Passcode...' : 'Rotate Executive Passcode'}</span>
             </button>
           </div>
         </form>

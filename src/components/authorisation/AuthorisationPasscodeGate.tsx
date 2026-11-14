@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Lock, AlertCircle, ArrowRight, ShieldCheck, KeyRound, Radio, Cpu, Sparkles } from 'lucide-react';
+import { Lock, AlertCircle, ArrowRight, ShieldCheck, Radio, Cpu, Loader2 } from 'lucide-react';
 import { subscribePasscodeSettings } from '../../services/firestoreStorage.ts';
+import { verifyStaffPasscode } from '../../utils/passcodeAuth.ts';
 
 interface AuthorisationPasscodeGateProps {
-  onUnlock: (isTrial?: boolean) => void;
+  onUnlock: () => void;
 }
 
 export const AuthorisationPasscodeGate: React.FC<AuthorisationPasscodeGateProps> = ({
@@ -12,44 +13,50 @@ export const AuthorisationPasscodeGate: React.FC<AuthorisationPasscodeGateProps>
   const [passcode, setPasscode] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [shake, setShake] = useState<boolean>(false);
-  const [fullCode, setFullCode] = useState('2526');
-  const [trialCode, setTrialCode] = useState('2520');
+  const [isVerifying, setIsVerifying] = useState<boolean>(false);
+  const [passcodeHash, setPasscodeHash] = useState<string | null>(null);
 
   useEffect(() => {
     const unsub = subscribePasscodeSettings((settings) => {
-      if (settings) {
-        setFullCode(settings.fullPasscode || '2526');
-        setTrialCode(settings.trialPasscode || '2520');
-      }
+      setPasscodeHash(settings?.passcodeHash || null);
     });
     return () => unsub();
   }, []);
 
-  const validateCode = (codeToTest: string) => {
+  const validateCode = async (codeToTest: string) => {
     const clean = codeToTest.trim();
-    if (clean === fullCode && clean !== '') {
-      setErrorMessage('');
-      onUnlock(false);
-    } else {
-      setErrorMessage('Access Denied. Invalid Authorisation Passcode.');
-      setShake(true);
-      setTimeout(() => setShake(false), 500);
-      setPasscode('');
+    if (!clean || isVerifying) return;
+    setIsVerifying(true);
+    try {
+      const valid = await verifyStaffPasscode(clean, passcodeHash);
+      if (valid) {
+        setErrorMessage('');
+        setPasscode('');
+        onUnlock();
+      } else {
+        setErrorMessage('Access Denied. Invalid Authorisation Passcode.');
+        setShake(true);
+        setTimeout(() => setShake(false), 500);
+        setPasscode('');
+      }
+    } finally {
+      setIsVerifying(false);
     }
   };
 
   const handleSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!passcode) return;
-    validateCode(passcode);
+    if (!passcode || isVerifying) return;
+    void validateCode(passcode);
   };
 
   const handleKeypadPress = (digit: string) => {
+    if (isVerifying) return;
     if (passcode.length < 6) {
       const next = passcode + digit;
       setPasscode(next);
       if (next.length === 4) {
-        validateCode(next);
+        void validateCode(next);
       }
     }
   };
@@ -64,7 +71,7 @@ export const AuthorisationPasscodeGate: React.FC<AuthorisationPasscodeGateProps>
       {/* Background Animated Laser Scanline Grid */}
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,#fbbf2415,transparent_60%)] pointer-events-none" />
       <div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff05_1px,transparent_1px),linear-gradient(to_bottom,#ffffff05_1px,transparent_1px)] bg-[size:32px_32px] pointer-events-none" />
-      
+
       {/* Ambient Pulsing Glow Orbs */}
       <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-amber-500/10 rounded-full blur-[120px] pointer-events-none animate-pulse-glow" />
 
@@ -82,7 +89,11 @@ export const AuthorisationPasscodeGate: React.FC<AuthorisationPasscodeGateProps>
           <div className="relative">
             <div className="absolute -inset-2 bg-gradient-to-r from-amber-500/30 via-yellow-400/40 to-amber-600/30 rounded-3xl blur-md animate-pulse-glow" />
             <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#1b1b26] to-[#101018] border border-amber-500/50 flex items-center justify-center text-amber-400 shadow-xl relative">
-              <Lock className="w-8 h-8 stroke-[2.2] drop-shadow-[0_0_8px_rgba(251,191,36,0.6)]" />
+              {isVerifying ? (
+                <Loader2 className="w-8 h-8 animate-spin text-amber-400" />
+              ) : (
+                <Lock className="w-8 h-8 stroke-[2.2] drop-shadow-[0_0_8px_rgba(251,191,36,0.6)]" />
+              )}
               <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-amber-400 text-black flex items-center justify-center text-[10px] font-bold shadow-md">
                 <ShieldCheck className="w-3 h-3 stroke-[2.5]" />
               </div>
@@ -127,11 +138,12 @@ export const AuthorisationPasscodeGate: React.FC<AuthorisationPasscodeGateProps>
             type="password"
             maxLength={8}
             value={passcode}
+            disabled={isVerifying}
             onChange={(e) => {
               const val = e.target.value.slice(0, 8);
               setPasscode(val);
               if (val.length === 4) {
-                validateCode(val);
+                void validateCode(val);
               }
             }}
             onKeyDown={(e) => {
@@ -140,7 +152,7 @@ export const AuthorisationPasscodeGate: React.FC<AuthorisationPasscodeGateProps>
               }
             }}
             placeholder="Enter 4-digit passcode"
-            className="w-full text-center bg-[#151520] border border-[#2a2a3c] rounded-xl py-3 px-4 text-base font-mono tracking-[0.3em] text-amber-300 focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400/50 shadow-inner placeholder:tracking-normal placeholder:text-neutral-600 placeholder:text-xs"
+            className="w-full text-center bg-[#151520] border border-[#2a2a3c] rounded-xl py-3 px-4 text-base font-mono tracking-[0.3em] text-amber-300 focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400/50 shadow-inner placeholder:tracking-normal placeholder:text-neutral-600 placeholder:text-xs disabled:opacity-60"
             autoFocus
           />
 
@@ -158,14 +170,16 @@ export const AuthorisationPasscodeGate: React.FC<AuthorisationPasscodeGateProps>
               <button
                 key={digit}
                 type="button"
+                disabled={isVerifying}
                 onClick={() => handleKeypadPress(digit)}
-                className="py-3.5 bg-gradient-to-b from-[#1c1c28] to-[#14141e] hover:from-[#252536] hover:to-[#1a1a28] active:scale-95 rounded-2xl font-mono text-lg font-bold text-neutral-100 border border-[#2d2d40] shadow-md hover:border-amber-500/40 hover:text-amber-300 transition-all"
+                className="py-3.5 bg-gradient-to-b from-[#1c1c28] to-[#14141e] hover:from-[#252536] hover:to-[#1a1a28] active:scale-95 rounded-2xl font-mono text-lg font-bold text-neutral-100 border border-[#2d2d40] shadow-md hover:border-amber-500/40 hover:text-amber-300 transition-all disabled:opacity-50"
               >
                 {digit}
               </button>
             ))}
             <button
               type="button"
+              disabled={isVerifying}
               onClick={handleClear}
               className="py-3.5 bg-neutral-900/80 hover:bg-neutral-800 text-neutral-400 hover:text-neutral-200 rounded-2xl text-xs font-semibold uppercase tracking-wider border border-neutral-800 transition-colors"
             >
@@ -173,14 +187,16 @@ export const AuthorisationPasscodeGate: React.FC<AuthorisationPasscodeGateProps>
             </button>
             <button
               type="button"
+              disabled={isVerifying}
               onClick={() => handleKeypadPress('0')}
-              className="py-3.5 bg-gradient-to-b from-[#1c1c28] to-[#14141e] hover:from-[#252536] hover:to-[#1a1a28] active:scale-95 rounded-2xl font-mono text-lg font-bold text-neutral-100 border border-[#2d2d40] shadow-md hover:border-amber-500/40 hover:text-amber-300 transition-all"
+              className="py-3.5 bg-gradient-to-b from-[#1c1c28] to-[#14141e] hover:from-[#252536] hover:to-[#1a1a28] active:scale-95 rounded-2xl font-mono text-lg font-bold text-neutral-100 border border-[#2d2d40] shadow-md hover:border-amber-500/40 hover:text-amber-300 transition-all disabled:opacity-50"
             >
               0
             </button>
             <button
               type="submit"
-              className="py-3.5 bg-gradient-to-r from-amber-500 via-amber-400 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-black font-black rounded-2xl shadow-lg shadow-amber-500/25 transition-all flex items-center justify-center transform active:scale-95"
+              disabled={isVerifying}
+              className="py-3.5 bg-gradient-to-r from-amber-500 via-amber-400 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-black font-black rounded-2xl shadow-lg shadow-amber-500/25 transition-all flex items-center justify-center transform active:scale-95 disabled:opacity-50"
             >
               <ArrowRight className="w-5 h-5 stroke-[3]" />
             </button>
@@ -191,7 +207,7 @@ export const AuthorisationPasscodeGate: React.FC<AuthorisationPasscodeGateProps>
         <div className="mt-7 pt-4 border-t border-[#1f1f2e] flex items-center justify-between text-[10px] text-neutral-500 font-mono">
           <span className="flex items-center gap-1">
             <Cpu className="w-3 h-3 text-amber-500/70" />
-            <span>256-BIT ENCRYPTED</span>
+            <span>SHA-256 VERIFIED</span>
           </span>
           <span>RESTRICTED ACCESS</span>
         </div>
@@ -199,4 +215,3 @@ export const AuthorisationPasscodeGate: React.FC<AuthorisationPasscodeGateProps>
     </div>
   );
 };
-

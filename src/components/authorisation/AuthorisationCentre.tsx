@@ -1,8 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AuthorisationPasscodeGate } from './AuthorisationPasscodeGate.tsx';
 import { StaffCodeManager } from './StaffCodeManager.tsx';
 import { StaffPublishingManager } from './StaffPublishingManager.tsx';
-import { StaffMarketingApplications } from './StaffMarketingApplications.tsx';
 import { StaffUserManager } from './StaffUserManager.tsx';
 import { StaffChallengeManager } from './StaffChallengeManager.tsx';
 import { StaffRosterManager } from './StaffRosterManager.tsx';
@@ -11,180 +10,239 @@ import { StaffStreamingManager } from './StaffStreamingManager.tsx';
 import { StaffCountdownManager } from './StaffCountdownManager.tsx';
 import { StaffAuditLogsView } from './StaffAuditLogsView.tsx';
 import { StaffPasscodesManager } from './StaffPasscodesManager.tsx';
+import { subscribeSubmissions } from '../../services/firestoreStorage.ts';
 import {
   ShieldCheck,
   Lock,
-  ChevronDown,
+  Radio,
+  Trophy,
+  Users,
+  Newspaper,
+  Music,
+  Clock,
+  KeyRound,
+  Shield,
+  FileText,
+  UserCheck,
 } from 'lucide-react';
 
 interface AuthorisationCentreProps {
   isUnlocked: boolean;
-  isTrialStaff?: boolean;
-  onUnlock: (isTrial?: boolean) => void;
+  onUnlock: () => void;
   onLock: () => void;
   onOpenBrandingKit?: () => void;
   brandingOrganizationName?: string;
 }
 
 export type StaffTab =
+  | 'publishing'
   | 'challenges'
-  | 'staff'
+  | 'users'
   | 'news'
   | 'streaming'
-  | 'applications'
   | 'countdown'
-  | 'users'
-  | 'publishing'
+  | 'staff'
   | 'codes'
   | 'passcodes'
   | 'audit';
 
+interface SidebarGroup {
+  title: string;
+  items: {
+    id: StaffTab;
+    label: string;
+    icon: React.ComponentType<{ className?: string }>;
+    badge?: number;
+  }[];
+}
+
 export const AuthorisationCentre: React.FC<AuthorisationCentreProps> = ({
   isUnlocked,
-  isTrialStaff,
   onUnlock,
   onLock,
 }) => {
-  const [activeTab, setActiveTab] = useState<StaffTab>('challenges');
+  const [activeTab, setActiveTab] = useState<StaffTab>('publishing');
+  const [pendingSubmissionsCount, setPendingSubmissionsCount] = useState<number>(0);
 
-  if (!isUnlocked && !isTrialStaff) {
+  useEffect(() => {
+    if (!isUnlocked) return;
+    const unsub = subscribeSubmissions((subs) => {
+      setPendingSubmissionsCount(Array.isArray(subs) ? subs.length : 0);
+    });
+    return () => unsub();
+  }, [isUnlocked]);
+
+  if (!isUnlocked) {
     return <AuthorisationPasscodeGate onUnlock={onUnlock} />;
   }
 
-  return (
-    <div className="flex-1 flex flex-col h-full bg-[#07070a] text-neutral-100 overflow-hidden font-sans">
-      {/* Trial Staff View-Only Banner */}
-      {isTrialStaff && (
-        <div className="bg-amber-950/90 border-b border-amber-500/50 px-4 py-2 text-center text-xs font-mono font-bold text-amber-300 flex items-center justify-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
-          <span>TRIAL STAFF VIEW-ONLY MODE ACTIVE: Full read and inspection access enabled. Editing and deleting are restricted to official executive staff.</span>
-        </div>
-      )}
+  const sidebarGroups: SidebarGroup[] = [
+    {
+      title: 'Moderation & Press',
+      items: [
+        {
+          id: 'publishing',
+          label: 'Newspaper Moderation',
+          icon: Radio,
+          badge: pendingSubmissionsCount,
+        },
+        { id: 'news', label: 'News Desk', icon: Newspaper },
+        { id: 'streaming', label: 'Streaming Vault', icon: Music },
+      ],
+    },
+    {
+      title: 'Community & Events',
+      items: [
+        { id: 'challenges', label: 'Challenges', icon: Trophy },
+        { id: 'users', label: 'Players & Roles', icon: Users },
+        { id: 'countdown', label: 'Event Countdown', icon: Clock },
+      ],
+    },
+    {
+      title: 'Studio & Security',
+      items: [
+        { id: 'staff', label: 'Staff Roster', icon: UserCheck },
+        { id: 'codes', label: 'Reward Codes', icon: KeyRound },
+        { id: 'passcodes', label: 'Passcode Security', icon: Shield },
+        { id: 'audit', label: 'Audit Trail', icon: FileText },
+      ],
+    },
+  ];
 
-      {/* Staff Sub-Header Single Dropdown Selector */}
-      <div className="bg-gradient-to-r from-[#0f090c] via-[#160c10] to-[#0f090c] border-b border-red-950/60 px-3 sm:px-6 py-2.5 flex flex-wrap items-center justify-between gap-2.5 shadow-lg select-none min-h-13 h-auto shrink-0 z-30">
-        <div className="flex items-center gap-2.5 shrink-0">
+  const allItems = sidebarGroups.flatMap((g) => g.items);
+  const currentTabItem = allItems.find((i) => i.id === activeTab) || allItems[0];
+
+  return (
+    <div className="flex-1 flex flex-col lg:flex-row h-full bg-[#07070a] text-neutral-100 overflow-hidden font-sans">
+      {/* Desktop Grouped Left Rail */}
+      <aside className="hidden lg:flex flex-col w-64 shrink-0 bg-[#0b0a0e] border-r border-neutral-800/90 h-full overflow-y-auto">
+        <div className="p-4 border-b border-neutral-800/80 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <ShieldCheck className="w-4 h-4 text-amber-400" />
-            <span className="text-xs font-bold text-amber-400 uppercase tracking-widest hidden sm:inline">
-              Authorisation Panel:
+            <span className="text-xs font-mono font-bold text-amber-300 uppercase tracking-wider">
+              Admin Vault
             </span>
           </div>
-
-          <div className="relative">
-            <select
-              value={activeTab}
-              onChange={(e) => setActiveTab(e.target.value as StaffTab)}
-              className="appearance-none bg-[#1a0e13] border border-red-500/50 text-amber-300 text-xs font-bold rounded-xl px-3.5 py-1.5 sm:py-2 pr-9 focus:outline-none focus:border-amber-400 cursor-pointer shadow-md hover:bg-[#25121b] transition-all min-h-[36px]"
-            >
-              <option value="challenges">🏆 Community Challenges &amp; Contests</option>
-              <option value="staff">👥 Staff Team &amp; Roster Management</option>
-              <option value="news">📰 Official News &amp; Editorial Management</option>
-              <option value="streaming">🎵 Music, Video &amp; Premiere Studio</option>
-              <option value="applications">💼 Marketing Recruitment &amp; Role Grants</option>
-              <option value="countdown">⏱️ Upcoming Event Countdown &amp; Backdrop</option>
-              <option value="users">👤 Community Players, Accounts &amp; Points</option>
-              <option value="publishing">📻 Newspaper Broadcast &amp; Ticker</option>
-              <option value="codes">🔑 Reward Codes, Points &amp; Redemptions</option>
-              <option value="passcodes">🔑 Passcode Security &amp; Access Codes</option>
-              <option value="audit">🛡️ Staff Administration Audit Trail</option>
-            </select>
-            <ChevronDown className="w-4 h-4 text-amber-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2.5 shrink-0">
-          <div className="hidden md:flex items-center gap-1.5 text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/30">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-            <span>EXECUTIVE VAULT UNLOCKED</span>
-          </div>
-
           <button
             onClick={onLock}
-            className="px-3 py-1.5 text-xs text-neutral-300 hover:text-amber-400 flex items-center gap-1.5 rounded-xl bg-[#14080c] border border-red-950/80 hover:border-amber-500/40 transition-all shrink-0 shadow-sm min-h-[36px] cursor-pointer"
+            className="p-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-neutral-400 hover:text-amber-400 border border-neutral-800 transition-colors cursor-pointer"
+            title="Lock Admin Access"
+          >
+            <Lock className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        <nav className="p-3 space-y-5 flex-1">
+          {sidebarGroups.map((group) => (
+            <div key={group.title} className="space-y-1">
+              <div className="px-2.5 text-[10px] font-mono font-bold uppercase tracking-widest text-neutral-500">
+                {group.title}
+              </div>
+              <div className="space-y-0.5">
+                {group.items.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = activeTab === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setActiveTab(item.id)}
+                      className={`w-full px-3 py-2 rounded-lg text-xs font-medium flex items-center justify-between gap-2 transition-all cursor-pointer ${
+                        isActive
+                          ? 'bg-red-600/20 text-white border border-red-500/40 font-semibold'
+                          : 'text-neutral-400 hover:text-white hover:bg-neutral-900/70 border border-transparent'
+                      }`}
+                    >
+                      <span className="flex items-center gap-2.5 truncate">
+                        <Icon className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-red-400' : 'text-neutral-500'}`} />
+                        <span className="truncate">{item.label}</span>
+                      </span>
+                      {typeof item.badge === 'number' && item.badge > 0 && (
+                        <span className="px-1.5 py-0.5 rounded bg-amber-500 text-black text-[10px] font-mono font-bold tabular-nums">
+                          {item.badge}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </nav>
+
+        <div className="p-3 border-t border-neutral-800/80">
+          <button
+            onClick={onLock}
+            className="w-full py-2 px-3 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-neutral-300 hover:text-amber-300 border border-neutral-800 text-xs font-mono font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer"
           >
             <Lock className="w-3.5 h-3.5 text-amber-400" />
-            <span>Lock Access</span>
+            <span>Lock Vault</span>
           </button>
+        </div>
+      </aside>
+
+      {/* Mobile / Tablet Compact Horizontal Bar */}
+      <div className="lg:hidden bg-[#0b0a0e] border-b border-neutral-800 px-3 py-2.5 space-y-2 shrink-0">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 text-xs font-mono font-bold text-amber-300">
+            <ShieldCheck className="w-4 h-4" />
+            <span>{currentTabItem.label}</span>
+          </div>
+          <button
+            onClick={onLock}
+            className="px-2.5 py-1 rounded-lg bg-neutral-900 text-neutral-300 border border-neutral-800 text-xs font-mono flex items-center gap-1.5 cursor-pointer"
+          >
+            <Lock className="w-3 h-3 text-amber-400" />
+            <span>Lock</span>
+          </button>
+        </div>
+        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
+          {allItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = activeTab === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setActiveTab(item.id)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-mono font-semibold flex items-center gap-1.5 shrink-0 whitespace-nowrap cursor-pointer ${
+                  isActive
+                    ? 'bg-red-600 text-white'
+                    : 'bg-neutral-900 text-neutral-400 border border-neutral-800'
+                }`}
+              >
+                <Icon className="w-3 h-3" />
+                <span>{item.label}</span>
+                {typeof item.badge === 'number' && item.badge > 0 && (
+                  <span className="px-1 rounded bg-amber-400 text-black text-[10px] font-bold">
+                    {item.badge}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      {/* Tab 1: Community Challenges & Contests */}
-      {activeTab === 'challenges' && (
-        <div className="flex-1 overflow-auto p-4 sm:p-8">
-          <StaffChallengeManager />
+      {/* Main Content Workspace */}
+      <div className="flex-1 flex flex-col overflow-hidden bg-[#07070a]">
+        <div key={activeTab} className="flex-1 overflow-auto animate-panel-reveal">
+          {activeTab === 'publishing' && <StaffPublishingManager />}
+          {activeTab === 'challenges' && (
+            <div className="p-4 sm:p-8">
+              <StaffChallengeManager />
+            </div>
+          )}
+          {activeTab === 'users' && <StaffUserManager />}
+          {activeTab === 'news' && <StaffNewsManager />}
+          {activeTab === 'streaming' && <StaffStreamingManager />}
+          {activeTab === 'countdown' && <StaffCountdownManager />}
+          {activeTab === 'staff' && <StaffRosterManager />}
+          {activeTab === 'codes' && <StaffCodeManager />}
+          {activeTab === 'passcodes' && <StaffPasscodesManager />}
+          {activeTab === 'audit' && <StaffAuditLogsView />}
         </div>
-      )}
-
-      {/* Tab 2: Dynamic Staff Team & Roster Management */}
-      {activeTab === 'staff' && (
-        <div className="flex-1 overflow-auto">
-          <StaffRosterManager />
-        </div>
-      )}
-
-      {/* Tab 3: Official News Management */}
-      {activeTab === 'news' && (
-        <div className="flex-1 overflow-auto">
-          <StaffNewsManager />
-        </div>
-      )}
-
-      {/* Tab 4: Streaming Content, Videos & Live Premieres */}
-      {activeTab === 'streaming' && (
-        <div className="flex-1 overflow-auto">
-          <StaffStreamingManager />
-        </div>
-      )}
-
-      {/* Tab 5: Marketing Recruitment & Roles */}
-      {activeTab === 'applications' && (
-        <div className="flex-1 overflow-auto">
-          <StaffMarketingApplications />
-        </div>
-      )}
-
-      {/* Tab 6: Event Countdown & Backdrop */}
-      {activeTab === 'countdown' && (
-        <div className="flex-1 overflow-auto">
-          <StaffCountdownManager />
-        </div>
-      )}
-
-      {/* Tab 7: Community Players, Accounts & Points */}
-      {activeTab === 'users' && (
-        <div className="flex-1 overflow-auto">
-          <StaffUserManager />
-        </div>
-      )}
-
-      {/* Tab 8: Newspaper Publishing & Broadcast Ticker */}
-      {activeTab === 'publishing' && (
-        <div className="flex-1 overflow-auto">
-          <StaffPublishingManager />
-        </div>
-      )}
-
-      {/* Tab 9: Secret Reward Codes */}
-      {activeTab === 'codes' && (
-        <div className="flex-1 overflow-auto">
-          <StaffCodeManager />
-        </div>
-      )}
-
-      {/* Tab 11: Passcodes Security Settings */}
-      {activeTab === 'passcodes' && (
-        <div className="flex-1 overflow-auto">
-          <StaffPasscodesManager />
-        </div>
-      )}
-
-      {/* Tab 10: Audit Logs */}
-      {activeTab === 'audit' && (
-        <div className="flex-1 overflow-auto">
-          <StaffAuditLogsView />
-        </div>
-      )}
+      </div>
     </div>
   );
 };

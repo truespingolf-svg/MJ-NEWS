@@ -1,5 +1,5 @@
 import React from 'react';
-import { ShieldCheck, Lock, Award, Sparkles, Mail, MessageSquare, Star, ArrowRight } from 'lucide-react';
+import { ShieldCheck, Lock, MessageSquare, ArrowRight } from 'lucide-react';
 
 interface StaffMember {
   id: string;
@@ -73,109 +73,81 @@ export const PublicStaffRosterSection: React.FC<PublicStaffRosterSectionProps> =
   onOpenStaffPortal,
 }) => {
   return (
-    <div className="space-y-12">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-6 border-b border-red-950/60">
+    <div className="space-y-8">
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 pb-5 border-b border-neutral-800/80">
         <div>
-          <div className="flex items-center gap-2 text-xs font-mono text-red-500 uppercase tracking-widest mb-1.5">
-            <ShieldCheck className="w-3.5 h-3.5 text-red-500" />
-            <span>EXECUTIVE ROSTER &amp; PRODUCTION TEAM</span>
+          <div className="flex items-center gap-2 text-xs font-mono text-red-400 uppercase tracking-widest mb-1">
+            <ShieldCheck className="w-3.5 h-3.5" />
+            <span>Executive Roster</span>
           </div>
-          <h1 className="font-serif font-black tracking-tight text-3xl sm:text-5xl text-white uppercase">
+          <h2 className="font-serif font-black tracking-tight text-2xl sm:text-4xl text-white uppercase">
             Staff &amp; Leadership
-          </h1>
-          <p className="text-sm text-neutral-400 max-w-xl mt-2 leading-relaxed">
-            The dedicated archival team, sound engineers, creative directors, and community coordinators stewarding the King of Pop's timeless kingdom.
+          </h2>
+          <p className="text-xs sm:text-sm text-neutral-400 max-w-xl mt-1.5 leading-relaxed">
+            The archival engineers, creative directors, and community curators running MJJ Records.
           </p>
         </div>
 
-        {/* Staff Portal Access Button */}
-        <div>
-          <button
-            onClick={onOpenStaffPortal}
-            className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-red-600 via-rose-600 to-red-700 hover:from-red-500 hover:to-rose-500 text-white font-bold text-xs uppercase tracking-wider flex items-center gap-2 shadow-lg shadow-red-950/60 transition-all cursor-pointer transform hover:scale-105 active:scale-95 font-sans"
-          >
-            <Lock className="w-3.5 h-3.5" />
-            <span>Staff Administration Portal</span>
-            <ArrowRight className="w-3.5 h-3.5" />
-          </button>
-        </div>
+        <button
+          onClick={onOpenStaffPortal}
+          className="px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-xs uppercase tracking-wider flex items-center gap-2 transition-all cursor-pointer self-start md:self-auto"
+        >
+          <Lock className="w-3.5 h-3.5" />
+          <span>Staff Studio</span>
+          <ArrowRight className="w-3.5 h-3.5" />
+        </button>
       </div>
 
-      {/* Staff Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
         {OFFICIAL_STAFF.map((member) => (
           <div
             key={member.id}
-            className="bg-[#12070a] border border-red-950/60 hover:border-red-600/60 rounded-3xl p-6 shadow-xl space-y-5 transition-all duration-300 group flex flex-col justify-between"
+            className="interactive-card bg-[#0d0d11] border border-neutral-800/90 hover:border-red-500/40 rounded-2xl p-5 space-y-4 flex flex-col justify-between"
           >
-            <div className="space-y-4">
-              {/* Photo & Role */}
-              <div className="flex items-center gap-4">
-                <div className="w-16 h-16 rounded-2xl overflow-hidden border-2 border-red-600/40 shadow-lg relative shrink-0 bg-neutral-900">
+            <div className="space-y-3.5">
+              <div className="flex items-center gap-3.5">
+                <div className="w-14 h-14 rounded-xl overflow-hidden border border-neutral-700 shrink-0 bg-neutral-900">
                   <img
                     src={member.avatarUrl}
                     alt={member.name}
-                    className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                    className="w-full h-full object-cover"
                     referrerPolicy="no-referrer"
                   />
                 </div>
 
                 <div className="min-w-0">
-                  {/* Clean unboxed metadata (anti-slop) */}
                   <span className="text-[10px] font-mono uppercase tracking-wider text-red-400 block truncate font-bold">
                     {member.department} · {member.role}
                   </span>
-                  <h3 className="font-serif font-black text-lg text-white group-hover:text-red-300 transition-colors truncate">
+                  <h3 className="font-serif font-bold text-base text-white truncate">
                     {member.name}
                   </h3>
-                  <span className="text-xs text-neutral-300 font-medium block truncate">
+                  <span className="text-xs text-neutral-400 block truncate">
                     {member.position}
                   </span>
                 </div>
               </div>
 
-              {/* Bio */}
-              <p className="text-xs text-neutral-300 font-sans leading-relaxed">
+              <p className="text-xs text-neutral-300 leading-relaxed">
                 {member.bio}
               </p>
             </div>
 
-            {/* Footer & Discord */}
-            <div className="pt-3 border-t border-red-950/60 flex items-center justify-between text-xs font-mono text-neutral-400">
+            <div className="pt-3 border-t border-neutral-800/80 flex items-center justify-between text-xs font-mono text-neutral-400">
               {member.discordHandle ? (
                 <span className="flex items-center gap-1.5 text-neutral-300">
                   <MessageSquare className="w-3.5 h-3.5 text-red-400" />
                   <span>@{member.discordHandle}</span>
                 </span>
               ) : (
-                <span className="text-neutral-500">Official MJJ Staff</span>
+                <span className="text-neutral-500">MJJ Staff</span>
               )}
-              <span className="text-[10px] uppercase text-red-500 font-bold tracking-wider">
-                VERIFIED
+              <span className="text-[10px] uppercase text-neutral-500 font-semibold tracking-wider">
+                Verified
               </span>
             </div>
           </div>
         ))}
-      </div>
-
-      {/* Staff Application / Promotion Callout */}
-      <div className="bg-gradient-to-r from-red-950/40 via-[#100609] to-red-950/40 border border-red-900/40 rounded-3xl p-8 flex flex-col sm:flex-row items-center justify-between gap-6">
-        <div className="space-y-2 text-center sm:text-left">
-          <h3 className="font-serif font-black text-xl text-white">
-            Join the MJJ Records Marketing &amp; Media Crew
-          </h3>
-          <p className="text-xs text-neutral-300 max-w-xl">
-            Passionate about Michael Jackson's creative legacy, archival journalism, and community curation? Submit an application to participate in our verified media teams.
-          </p>
-        </div>
-
-        <button
-          onClick={onOpenStaffPortal}
-          className="px-6 py-2.5 bg-neutral-900 hover:bg-neutral-800 text-neutral-200 border border-red-950/80 rounded-xl text-xs font-bold font-mono uppercase tracking-wider shrink-0 transition-colors"
-        >
-          Staff &amp; Governance Center
-        </button>
       </div>
     </div>
   );

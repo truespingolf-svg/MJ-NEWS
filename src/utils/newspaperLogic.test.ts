@@ -12,12 +12,13 @@ import {
   updateImageElement,
   resetImageSlot,
   getAvailableLayouts,
+  formatBroadsheetDate,
+  ensurePageEditableSlots,
 } from './newspaperLogic.ts';
-import { PageLayoutId } from '../types/newspaper.ts';
 
-test('createNewProject creates project with initial Front Cover having exactly 3 image placeholders', () => {
-  const project = createNewProject('Test MJ Chronicle');
-  assert.equal(project.title, 'Test MJ Chronicle');
+test('createNewProject creates project with initial Front Cover having exactly 3 image placeholders and no Chronicle branding', () => {
+  const project = createNewProject('Test MJJ Edition');
+  assert.equal(project.title, 'Test MJJ Edition');
   assert.equal(project.pages.length, 1);
 
   const cover = project.pages[0];
@@ -29,11 +30,39 @@ test('createNewProject creates project with initial Front Cover having exactly 3
   assert.equal(cover.images.image1.slotIndex, 1);
   assert.equal(cover.images.image2.slotIndex, 2);
   assert.equal(cover.images.image3.slotIndex, 3);
+
+  const masthead = cover.texts.masthead?.content || '';
+  assert.equal(masthead.toLowerCase().includes('chronicle'), false);
+  assert.equal(cover.pageHeader.editionName.toLowerCase().includes('chronicle'), false);
+  assert.notEqual(cover.pageHeader.dateText, 'JUNE 25, 2009');
+  assert.ok(formatBroadsheetDate(new Date('2026-05-01T12:00:00Z')).includes('2026'));
 });
 
-test('ALL 8 interior layouts have exactly 3 image placeholders', () => {
+test('ALL 8 interior layouts have 3 image placeholders and complete editable text slots', () => {
   const layouts = getAvailableLayouts().filter((l) => l.category === 'interior');
   assert.equal(layouts.length >= 8, true, 'Must have at least 8 interior layouts');
+
+  const requiredInteriorTextKeys = [
+    'sectionKicker',
+    'pageHeadline',
+    'subhead',
+    'mainArticleBody',
+    'secondaryHeadline',
+    'secondaryArticleBody',
+    'pullQuote',
+    'columnNoteTitle',
+    'columnNoteBody',
+    'dispatch1Title',
+    'dispatch1Body',
+    'dispatch1Meta',
+    'dispatch2Title',
+    'dispatch2Body',
+    'dispatch2Meta',
+    'dispatch3Title',
+    'dispatch3Body',
+    'dispatch3Meta',
+    'spreadKicker',
+  ];
 
   for (const layout of layouts) {
     const page = createInteriorPage(layout.id, 2);
@@ -45,7 +74,27 @@ test('ALL 8 interior layouts have exactly 3 image placeholders', () => {
     assert.equal(page.images.image1.slotIndex, 1);
     assert.equal(page.images.image2.slotIndex, 2);
     assert.equal(page.images.image3.slotIndex, 3);
+    for (const key of requiredInteriorTextKeys) {
+      assert.ok(page.texts[key], `Layout ${layout.id} missing text slot ${key}`);
+      assert.ok(page.texts[key].id, `Layout ${layout.id} text slot ${key} missing id`);
+    }
   }
+});
+
+test('ensurePageEditableSlots backfills missing slots while preserving user edits', () => {
+  const partialInterior = createInteriorPage('layout-classic-dispatch', 2);
+  delete (partialInterior.texts as any).dispatch2Title;
+  delete (partialInterior.texts as any).spreadKicker;
+  partialInterior.texts.pageHeadline.content = 'CUSTOM EDITED HEADLINE';
+
+  const repaired = ensurePageEditableSlots(partialInterior, 'layout-classic-dispatch');
+  assert.equal(repaired.texts.pageHeadline.content, 'CUSTOM EDITED HEADLINE');
+  assert.ok(repaired.texts.dispatch2Title?.id);
+  assert.ok(repaired.texts.spreadKicker?.id);
+
+  const switched = changePageLayout(repaired, 'layout-headline-spread');
+  assert.equal(switched.layoutId, 'layout-headline-spread');
+  assert.equal(switched.texts.pageHeadline.content, 'CUSTOM EDITED HEADLINE');
 });
 
 test('duplicatePage clones page and recalculates page numbering sequentially', () => {

@@ -7,6 +7,21 @@ import {
   LayoutDescriptor,
 } from '../types/newspaper.ts';
 
+export function formatBroadsheetDate(date: Date = new Date()): string {
+  try {
+    return date
+      .toLocaleDateString('en-US', {
+        weekday: 'long',
+        month: 'long',
+        day: 'numeric',
+        year: 'numeric',
+      })
+      .toUpperCase();
+  } catch {
+    return 'SPECIAL PRESS EDITION';
+  }
+}
+
 /**
  * Creates default 3 image placeholders for any page.
  * Every page (cover or interior) strictly has 3 image placeholders.
@@ -77,7 +92,7 @@ export function createFrontCoverPage(pageNumber: number = 1): NewspaperPage {
       id: `${pageId}-masthead`,
       type: 'text',
       role: 'masthead',
-      content: 'THE KING OF POP CHRONICLE',
+      content: 'THE MJJ DAILY PRESS',
       fontFamily: 'cinzel',
       fontSize: 48,
       fontWeight: 'black',
@@ -90,7 +105,7 @@ export function createFrontCoverPage(pageNumber: number = 1): NewspaperPage {
       id: `${pageId}-motto`,
       type: 'text',
       role: 'motto',
-      content: 'THE OFFICIAL RECORD OF THE GREATEST ENTERTAINER OF ALL TIME',
+      content: 'OFFICIAL BROADSHEET EDITION • MUSIC, CULTURE & COMMUNITY',
       fontFamily: 'oswald',
       fontSize: 10,
       fontWeight: 'semibold',
@@ -104,7 +119,7 @@ export function createFrontCoverPage(pageNumber: number = 1): NewspaperPage {
       id: `${pageId}-topKicker`,
       type: 'text',
       role: 'kicker',
-      content: 'SPECIAL WORLD TOUR COMMEMORATIVE EDITION',
+      content: 'SPECIAL COMMEMORATIVE BROADSHEET EDITION',
       fontFamily: 'oswald',
       fontSize: 12,
       fontWeight: 'bold',
@@ -118,7 +133,7 @@ export function createFrontCoverPage(pageNumber: number = 1): NewspaperPage {
       id: `${pageId}-mainHeadline`,
       type: 'text',
       role: 'headline',
-      content: 'MAIN HEADLINE: ENTERPRISE OF LEGENDARY MUSIC HISTORY',
+      content: 'MAIN HEADLINE: ENTER YOUR LEAD STORY TITLE',
       fontFamily: 'playfair',
       fontSize: 40,
       fontWeight: 'bold',
@@ -131,7 +146,7 @@ export function createFrontCoverPage(pageNumber: number = 1): NewspaperPage {
       id: `${pageId}-subhead`,
       type: 'text',
       role: 'subhead',
-      content: 'Secondary Headline Detailing Historic Musical Innovations And Record-Breaking Triumphs',
+      content: 'Click here to customize your secondary headline and edition summary',
       fontFamily: 'merriweather',
       fontSize: 16,
       fontWeight: 'normal',
@@ -143,7 +158,7 @@ export function createFrontCoverPage(pageNumber: number = 1): NewspaperPage {
       id: `${pageId}-leadArticleHeadline`,
       type: 'text',
       role: 'headline',
-      content: 'A Monumental Journey Through The Golden Eras Of Sound',
+      content: 'Lead Feature Article Headline',
       fontFamily: 'playfair',
       fontSize: 22,
       fontWeight: 'bold',
@@ -156,7 +171,7 @@ export function createFrontCoverPage(pageNumber: number = 1): NewspaperPage {
       type: 'text',
       role: 'body',
       content:
-        'Article Text: Enter your primary news story here. Detail the monumental performances, electrifying choreography, and cultural phenomenon that captivated millions across stadiums worldwide.\n\nFrom groundbreaking short films to pioneering vocal rhythms, this column documents the milestones of artistic mastery that forever redefined global entertainment standards.',
+        'Click this article block to write your front-page news story. Detail key performances, breaking announcements, interviews, and milestones.\n\nUse the formatting panel on the right to adjust font style, column count, drop caps, and text alignment.',
       fontFamily: 'source-serif',
       fontSize: 13,
       fontWeight: 'normal',
@@ -171,7 +186,7 @@ export function createFrontCoverPage(pageNumber: number = 1): NewspaperPage {
       id: `${pageId}-secondaryHeadline`,
       type: 'text',
       role: 'headline',
-      content: 'Behind The Scenes: Studio Sessions That Revolutionized Modern Pop',
+      content: 'Secondary Feature Headline',
       fontFamily: 'playfair',
       fontSize: 18,
       fontWeight: 'bold',
@@ -184,7 +199,7 @@ export function createFrontCoverPage(pageNumber: number = 1): NewspaperPage {
       type: 'text',
       role: 'body',
       content:
-        'Article Text: In-depth report covering the recording craftsmanship, analog engineering, and legendary basslines. Collaborators recount the dedication to sonic perfection that produced unmatched diamond-certified masterpieces.',
+        'Click to edit your secondary broadsheet column with highlights, backstage dispatches, or featured coverage.',
       fontFamily: 'source-serif',
       fontSize: 12,
       fontWeight: 'normal',
@@ -198,7 +213,7 @@ export function createFrontCoverPage(pageNumber: number = 1): NewspaperPage {
       id: `${pageId}-sidebarHeadline`,
       type: 'text',
       role: 'headline',
-      content: 'Global Dispatch: Milestone Tour Records',
+      content: 'Spotlight Column Dispatch',
       fontFamily: 'oswald',
       fontSize: 15,
       fontWeight: 'bold',
@@ -212,7 +227,7 @@ export function createFrontCoverPage(pageNumber: number = 1): NewspaperPage {
       type: 'text',
       role: 'body',
       content:
-        'Special dispatch highlighting stadium attendance records across London, Tokyo, Paris, and Los Angeles. Fans gathered in historic numbers to witness the iconic moonwalk in person.',
+        'Click to edit this spotlight dispatch with tour notes, fan highlights, or exclusive community updates.',
       fontFamily: 'source-serif',
       fontSize: 11,
       fontWeight: 'normal',
@@ -222,6 +237,61 @@ export function createFrontCoverPage(pageNumber: number = 1): NewspaperPage {
       columns: 1,
       lineHeight: 1.4,
     },
+    bulletinTitle: {
+      id: `${pageId}-bulletinTitle`,
+      type: 'text',
+      role: 'kicker',
+      content: 'BULLETIN & EDITION INDEX',
+      fontFamily: 'oswald',
+      fontSize: 10,
+      fontWeight: 'bold',
+      italic: false,
+      align: 'left',
+      color: '#78350f',
+      letterSpacing: '0.08em',
+      uppercase: true,
+    },
+    bulletinBody: {
+      id: `${pageId}-bulletinBody`,
+      type: 'text',
+      role: 'body',
+      content:
+        'Click to customize this front-page index box with section highlights, page guides, or special announcements for readers.',
+      fontFamily: 'source-serif',
+      fontSize: 11,
+      fontWeight: 'normal',
+      italic: false,
+      align: 'left',
+      color: '#262420',
+      columns: 1,
+      lineHeight: 1.45,
+    },
+    weatherTitle: {
+      id: `${pageId}-weatherTitle`,
+      type: 'text',
+      role: 'kicker',
+      content: 'PRESS CIRCULATION & NOTES',
+      fontFamily: 'oswald',
+      fontSize: 11,
+      fontWeight: 'bold',
+      italic: false,
+      align: 'left',
+      color: '#151412',
+      uppercase: true,
+    },
+    weatherBody: {
+      id: `${pageId}-weatherBody`,
+      type: 'text',
+      role: 'caption',
+      content: 'Official MJJ Records Broadsheet • Worldwide digital & print circulation.',
+      fontFamily: 'source-serif',
+      fontSize: 11,
+      fontWeight: 'normal',
+      italic: false,
+      align: 'left',
+      color: '#524d45',
+      lineHeight: 1.35,
+    },
   };
 
   return {
@@ -230,10 +300,10 @@ export function createFrontCoverPage(pageNumber: number = 1): NewspaperPage {
     isCover: true,
     layoutId: 'front-cover',
     pageHeader: {
-      editionName: 'FIRST EDITION / WORLDWIDE CIRCULATION',
-      dateText: 'SATURDAY, NOVEMBER 7, 2026',
-      issueNumber: 'NO. 1958',
-      priceText: 'FIFTY CENTS',
+      editionName: 'FIRST EDITION • WORLDWIDE CIRCULATION',
+      dateText: formatBroadsheetDate(),
+      issueNumber: 'NO. 01',
+      priceText: 'SPECIAL EDITION',
     },
     texts,
     images,
@@ -335,13 +405,171 @@ export function createInteriorPageTexts(
       id: `${pageId}-pullQuote`,
       type: 'text',
       role: 'pullquote',
-      content: '“To create something that touches the world, you have to pour your whole soul into every single beat.”',
+      content: '“Click to edit this featured pull quote or highlight.”',
       fontFamily: 'bodoni',
       fontSize: 18,
       fontWeight: 'bold',
       italic: true,
       align: 'center',
       color: '#111111',
+    },
+    columnNoteTitle: {
+      id: `${pageId}-columnNoteTitle`,
+      type: 'text',
+      role: 'kicker',
+      content: 'EDITORIAL DISPATCH NOTE',
+      fontFamily: 'oswald',
+      fontSize: 10,
+      fontWeight: 'bold',
+      italic: false,
+      align: 'left',
+      color: '#151412',
+      uppercase: true,
+    },
+    columnNoteBody: {
+      id: `${pageId}-columnNoteBody`,
+      type: 'text',
+      role: 'body',
+      content: 'Click here to edit this side dispatch column with notes, credits, or commentary.',
+      fontFamily: 'source-serif',
+      fontSize: 11,
+      fontWeight: 'normal',
+      italic: false,
+      align: 'left',
+      color: '#383531',
+      columns: 1,
+      lineHeight: 1.45,
+    },
+    dispatch1Title: {
+      id: `${pageId}-dispatch1Title`,
+      type: 'text',
+      role: 'headline',
+      content: 'Dispatch I: Feature Story',
+      fontFamily: 'playfair',
+      fontSize: 16,
+      fontWeight: 'bold',
+      italic: false,
+      align: 'left',
+      color: '#151412',
+    },
+    dispatch1Body: {
+      id: `${pageId}-dispatch1Body`,
+      type: 'text',
+      role: 'body',
+      content: 'Click to edit column one report text.',
+      fontFamily: 'source-serif',
+      fontSize: 12,
+      fontWeight: 'normal',
+      italic: false,
+      align: 'justify',
+      color: '#262420',
+      columns: 1,
+      lineHeight: 1.45,
+    },
+    dispatch1Meta: {
+      id: `${pageId}-dispatch1Meta`,
+      type: 'text',
+      role: 'dateline',
+      content: 'DISPATCH NO. 01 • ARCHIVE WIRE',
+      fontFamily: 'oswald',
+      fontSize: 10,
+      fontWeight: 'semibold',
+      italic: false,
+      align: 'left',
+      color: '#78716c',
+      uppercase: true,
+    },
+    dispatch2Title: {
+      id: `${pageId}-dispatch2Title`,
+      type: 'text',
+      role: 'headline',
+      content: 'Dispatch II: Special Report',
+      fontFamily: 'playfair',
+      fontSize: 16,
+      fontWeight: 'bold',
+      italic: false,
+      align: 'left',
+      color: '#151412',
+    },
+    dispatch2Body: {
+      id: `${pageId}-dispatch2Body`,
+      type: 'text',
+      role: 'body',
+      content: 'Click to edit column two report text.',
+      fontFamily: 'source-serif',
+      fontSize: 12,
+      fontWeight: 'normal',
+      italic: false,
+      align: 'justify',
+      color: '#262420',
+      columns: 1,
+      lineHeight: 1.45,
+    },
+    dispatch2Meta: {
+      id: `${pageId}-dispatch2Meta`,
+      type: 'text',
+      role: 'dateline',
+      content: 'DISPATCH NO. 02 • PRESS DESK',
+      fontFamily: 'oswald',
+      fontSize: 10,
+      fontWeight: 'semibold',
+      italic: false,
+      align: 'left',
+      color: '#78716c',
+      uppercase: true,
+    },
+    dispatch3Title: {
+      id: `${pageId}-dispatch3Title`,
+      type: 'text',
+      role: 'headline',
+      content: 'Dispatch III: Community Notes',
+      fontFamily: 'playfair',
+      fontSize: 16,
+      fontWeight: 'bold',
+      italic: false,
+      align: 'left',
+      color: '#151412',
+    },
+    dispatch3Body: {
+      id: `${pageId}-dispatch3Body`,
+      type: 'text',
+      role: 'body',
+      content: 'Click to edit column three report text.',
+      fontFamily: 'source-serif',
+      fontSize: 12,
+      fontWeight: 'normal',
+      italic: false,
+      align: 'justify',
+      color: '#262420',
+      columns: 1,
+      lineHeight: 1.45,
+    },
+    dispatch3Meta: {
+      id: `${pageId}-dispatch3Meta`,
+      type: 'text',
+      role: 'dateline',
+      content: 'DISPATCH NO. 03 • EDITION NOTES',
+      fontFamily: 'oswald',
+      fontSize: 10,
+      fontWeight: 'semibold',
+      italic: false,
+      align: 'left',
+      color: '#78716c',
+      uppercase: true,
+    },
+    spreadKicker: {
+      id: `${pageId}-spreadKicker`,
+      type: 'text',
+      role: 'kicker',
+      content: 'SPECIAL BROADSHEET FEATURE',
+      fontFamily: 'oswald',
+      fontSize: 12,
+      fontWeight: 'bold',
+      italic: false,
+      align: 'left',
+      color: '#78350f',
+      letterSpacing: '0.1em',
+      uppercase: true,
     },
   };
 
@@ -366,11 +594,11 @@ export function createInteriorPage(
     isCover: false,
     layoutId,
     pageHeader: {
-      editionName: 'THE KING OF POP CHRONICLE',
-      dateText: 'SATURDAY, NOVEMBER 7, 2026',
+      editionName: 'THE MJJ DAILY PRESS',
+      dateText: formatBroadsheetDate(),
       issueNumber: `PAGE ${pageNumber}`,
-      priceText: 'FIFTY CENTS',
-      sectionTitle: `HISTORIC ARCHIVES • PAGE ${pageNumber}`,
+      priceText: 'SPECIAL EDITION',
+      sectionTitle: `EDITORIAL ARCHIVE • PAGE ${pageNumber}`,
     },
     texts,
     images,
@@ -510,19 +738,62 @@ export function reorderPages(
 }
 
 /**
+ * Backfills any missing text/image slots on an existing page so ALL templates
+ * remain 100% editable even when switching layouts or loading older projects.
+ */
+export function ensurePageEditableSlots(
+  page: NewspaperPage,
+  targetLayoutId: PageLayoutId = page.layoutId
+): NewspaperPage {
+  const templatePage =
+    targetLayoutId === 'front-cover'
+      ? createFrontCoverPage(page.pageNumber)
+      : createInteriorPage(targetLayoutId, page.pageNumber);
+
+  const mergedTexts: Record<string, TextElement> = {
+    ...templatePage.texts,
+    ...(page.texts || {}),
+  };
+
+  for (const [k, v] of Object.entries(mergedTexts)) {
+    if (!v.id) {
+      mergedTexts[k] = { ...v, id: `${page.id}-${k}` };
+    }
+  }
+
+  const defaultImgs = createDefaultImagePlaceholders(page.id);
+  const mergedImages = {
+    image1: page.images?.image1 || defaultImgs.image1,
+    image2: page.images?.image2 || defaultImgs.image2,
+    image3: page.images?.image3 || defaultImgs.image3,
+  };
+
+  return {
+    ...page,
+    layoutId: targetLayoutId,
+    texts: mergedTexts,
+    images: mergedImages,
+  };
+}
+
+/**
  * Changes layout of an existing page while preserving existing images and texts where possible
  */
 export function changePageLayout(
   page: NewspaperPage,
   newLayoutId: PageLayoutId
 ): NewspaperPage {
-  if (page.layoutId === newLayoutId) return page;
+  if (page.layoutId === newLayoutId) {
+    return ensurePageEditableSlots(page, newLayoutId);
+  }
 
-  return {
-    ...page,
-    layoutId: newLayoutId,
-    // Note: All images (image1, image2, image3) are preserved!
-  };
+  return ensurePageEditableSlots(
+    {
+      ...page,
+      layoutId: newLayoutId,
+    },
+    newLayoutId
+  );
 }
 
 /**

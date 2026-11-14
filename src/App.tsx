@@ -10,14 +10,17 @@ import {
   updateTextElement,
   updateImageElement,
   resetImageSlot,
+  ensurePageEditableSlots,
 } from './utils/newspaperLogic.ts';
 import {
   loadAllProjects,
   saveProject,
   deleteProject,
+  deleteAllProjects,
   duplicateProject,
   exportProjectToJson,
 } from './services/storage.ts';
+import { subscribeProjects } from './services/firestoreStorage.ts';
 
 import { Dashboard } from './components/dashboard/Dashboard.tsx';
 import { Header } from './components/common/Header.tsx';
@@ -30,7 +33,7 @@ import { PublishNewspaperModal } from './components/editor/PublishNewspaperModal
 import { FlipbookReader } from './components/canvas/FlipbookReader.tsx';
 import { downloadProjectPdf } from './services/pdfExport.ts';
 
-// New Feature Expansion & MJJ Records Portal Modules
+// MJJ Records Portal Modules
 import { MjjRecordsPortal } from './components/portal/MjjRecordsPortal.tsx';
 import { HomeScreenLockTakeover } from './components/home/HomeScreenLockTakeover.tsx';
 import { NewsprintTextureOverlay } from './components/common/NewsprintTextureOverlay.tsx';
@@ -43,11 +46,19 @@ import { OrganizationBranding } from './types/branding.ts';
 
 type AppMode = 'public' | 'staff';
 
+function normalizeProjectPages(project: NewspaperProject): NewspaperProject {
+  return {
+    ...project,
+    pages: (project.pages || []).map((p, idx) =>
+      ensurePageEditableSlots({ ...p, pageNumber: p.pageNumber || idx + 1 }, p.layoutId)
+    ),
+  };
+}
+
 export default function App() {
   // App mode: public portal (default) vs staff studio
   const [appMode, setAppMode] = useState<AppMode>('public');
   const [isStaffAuthenticated, setIsStaffAuthenticated] = useState<boolean>(false);
-  const [isTrialStaff, setIsTrialStaff] = useState<boolean>(false);
   const [showPasscodeModal, setShowPasscodeModal] = useState<boolean>(false);
   const [textureEnabled, setTextureEnabled] = useState<boolean>(true);
   const [isAiModalOpen, setIsAiModalOpen] = useState<boolean>(false);
@@ -58,7 +69,7 @@ export default function App() {
   const [isBrandingModalOpen, setIsBrandingModalOpen] = useState<boolean>(false);
   const [branding, setBranding] = useState<OrganizationBranding>(() => loadOrganizationBranding());
 
-  // Existing Newspaper state
+  // Newspaper state (never auto-creates starter/demo documents)
   const [view, setView] = useState<'dashboard' | 'editor'>('dashboard');
   const [projects, setProjects] = useState<NewspaperProject[]>([]);
   const [currentProject, setCurrentProject] = useState<NewspaperProject | null>(null);
@@ -88,26 +99,38 @@ export default function App() {
 
   // Refresh lists helper
   const refreshLibraryData = () => {
-    setProjects(loadAllProjects());
+    setProjects(loadAllProjects().map(normalizeProjectPages));
   };
 
-  // Initial load
+  // Real-time Firestore projects subscription & initial settings fetch
   useEffect(() => {
-    const loaded = loadAllProjects();
-    setProjects(loaded);
-    if (loaded.length > 0) {
-      setCurrentProject(loaded[0]);
-    }
+    const initialLoaded = loadAllProjects().map(normalizeProjectPages);
+    setProjects(initialLoaded);
 
-    // Fetch initial texture setting from server
+    const unsubProjects = subscribeProjects((firestoreProjects) => {
+      const normalized = firestoreProjects.map(normalizeProjectPages);
+      setProjects(normalized);
+      setCurrentProject((prev) => {
+        if (!prev) return null;
+        const stillExists = normalized.find((p) => p.id === prev.id);
+        return stillExists ? prev : null;
+      });
+    });
+
     fetch('/api/public/data')
       .then((res) => res.json())
       .then((data) => {
-        if (data.settings && typeof data.settings.newsprintTexture === 'boolean') {
-          setTextureEnabled(data.settings.newsprintTexture);
+        if (data.settings) {
+          if (typeof data.settings.newsprintTextureEnabled === 'boolean') {
+            setTextureEnabled(data.settings.newsprintTextureEnabled);
+          } else if (typeof data.settings.newsprintTexture === 'boolean') {
+            setTextureEnabled(data.settings.newsprintTexture);
+          }
         }
       })
       .catch(() => {});
+
+    return () => unsubProjects();
   }, []);
 
   // Toggle global newsprint texture setting & persist to backend
@@ -118,16 +141,28 @@ export default function App() {
       await fetch('/api/staff/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ newsprintTexture: nextVal }),
+        body: JSON.stringify({ newsprintTextureEnabled: nextVal }),
       });
     } catch (err) {
       console.error('Failed to sync texture setting with server:', err);
     }
   };
 
-  // Staff passcode trigger (always require passcode entry)
+  // Staff passcode trigger (executive Vault access)
   const handleOpenStaffRequest = () => {
+    if (isStaffAuthenticated) {
+      setAppMode('staff');
+      return;
+    }
     setShowPasscodeModal(true);
+  };
+
+  // Direct Newspaper Studio access for Newspaper Specialists & Staff Roles
+  const handleOpenNewspaperStudioDirectly = () => {
+    setIsStaffAuthenticated(true);
+    setAppMode('staff');
+    setMainView('newspaper');
+    setView('dashboard');
   };
 
   // Debounced auto-save whenever currentProject changes
@@ -154,9 +189,9 @@ export default function App() {
     };
   }, [currentProject]);
 
-  // Handle creating new blank newspaper
+  // Handle creating new blank newspaper (user-initiated only)
   const handleCreateNewProject = () => {
-    const fresh = createNewProject('My Michael Jackson Broadsheet');
+    const fresh = normalizeProjectPages(createNewProject('New MJJ Broadsheet Edition'));
     saveProject(fresh);
     setProjects((prev) => [fresh, ...prev]);
     setCurrentProject(fresh);
@@ -170,7 +205,7 @@ export default function App() {
   const handleOpenProject = (projectId: string) => {
     const found = projects.find((p) => p.id === projectId);
     if (found) {
-      setCurrentProject(found);
+      setCurrentProject(normalizeProjectPages(found));
       setActivePageIndex(0);
       setSelectedElementId(null);
       setSelectedImageSlot(null);
@@ -182,17 +217,29 @@ export default function App() {
   const handleDuplicateProject = (projectId: string) => {
     const dup = duplicateProject(projectId);
     if (dup) {
-      setProjects(loadAllProjects());
+      setProjects(loadAllProjects().map(normalizeProjectPages));
     }
   };
 
-  // Delete project on dashboard
+  // Delete single project on dashboard
   const handleDeleteProject = (projectId: string) => {
-    const updated = deleteProject(projectId);
+    const updated = deleteProject(projectId).map(normalizeProjectPages);
     setProjects(updated);
     if (currentProject?.id === projectId) {
-      setCurrentProject(updated[0] || null);
+      setCurrentProject(null);
+      setView('dashboard');
     }
+  };
+
+  // Delete ALL projects permanently
+  const handleDeleteAllProjects = async () => {
+    await deleteAllProjects();
+    setProjects([]);
+    setCurrentProject(null);
+    setActivePageIndex(0);
+    setSelectedElementId(null);
+    setSelectedImageSlot(null);
+    setView('dashboard');
   };
 
   // Rename project on dashboard or in header
@@ -214,11 +261,14 @@ export default function App() {
     try {
       const parsed = JSON.parse(jsonStr) as NewspaperProject;
       if (parsed.id && parsed.pages && Array.isArray(parsed.pages)) {
-        parsed.id = `project-${Date.now()}`;
-        saveProject(parsed);
-        const all = loadAllProjects();
+        const normalized = normalizeProjectPages({
+          ...parsed,
+          id: `project-${Date.now()}`,
+        });
+        saveProject(normalized);
+        const all = loadAllProjects().map(normalizeProjectPages);
         setProjects(all);
-        setCurrentProject(parsed);
+        setCurrentProject(normalized);
         setActivePageIndex(0);
         setView('editor');
       } else {
@@ -233,7 +283,7 @@ export default function App() {
   const handleAddPage = (layoutId: PageLayoutId) => {
     if (!currentProject) return;
     const newPageNumber = currentProject.pages.length + 1;
-    const newPage = createInteriorPage(layoutId, newPageNumber);
+    const newPage = ensurePageEditableSlots(createInteriorPage(layoutId, newPageNumber), layoutId);
     const updatedProject: NewspaperProject = {
       ...currentProject,
       pages: [...currentProject.pages, newPage],
@@ -373,8 +423,10 @@ export default function App() {
       offscreenPagesRef.current,
       (msg) => setExportProgressText(msg)
     );
-    setIsExportingPdf(false);
-    setExportProgressText('');
+    setTimeout(() => {
+      setIsExportingPdf(false);
+      setExportProgressText('');
+    }, 1500);
   };
 
   // Active page for newspaper editor
@@ -392,6 +444,7 @@ export default function App() {
       {appMode === 'public' ? (
         <MjjRecordsPortal
           onOpenStaffPortal={handleOpenStaffRequest}
+          onOpenNewspaperStudio={handleOpenNewspaperStudioDirectly}
           textureEnabled={textureEnabled}
           onToggleTexture={handleToggleTexture}
         />
@@ -403,7 +456,6 @@ export default function App() {
             <div className="absolute -top-32 left-10 w-[500px] h-[500px] bg-red-950/30 rounded-full blur-[140px] animate-pulse" />
             <div className="absolute bottom-10 right-10 w-[600px] h-[600px] bg-amber-950/20 rounded-full blur-[160px] animate-pulse" style={{ animationDuration: '7s' }} />
 
-            {/* Flying Bats Swarm Animation */}
             {[
               { top: '15%', left: '10%', scale: 'scale-75', dur: '9s', delay: '0s' },
               { top: '35%', left: '70%', scale: 'scale-100', dur: '12s', delay: '2s' },
@@ -464,11 +516,7 @@ export default function App() {
             {mainView === 'authorisation' && (
               <AuthorisationCentre
                 isUnlocked={isAuthorisationUnlocked}
-                isTrialStaff={isTrialStaff}
-                onUnlock={(isTrial) => {
-                  setIsAuthorisationUnlocked(true);
-                  if (isTrial) setIsTrialStaff(true);
-                }}
+                onUnlock={() => setIsAuthorisationUnlocked(true)}
                 onLock={() => setIsAuthorisationUnlocked(false)}
               />
             )}
@@ -484,6 +532,14 @@ export default function App() {
                       onOpenProject={handleOpenProject}
                       onDuplicateProject={handleDuplicateProject}
                       onDeleteProject={handleDeleteProject}
+                      onDeleteAllProjects={handleDeleteAllProjects}
+                      onPublishProject={(project) => {
+                        setCurrentProject(normalizeProjectPages(project));
+                        setIsPublishModalOpen(true);
+                      }}
+                      onPreviewProject={(project) => {
+                        setActiveFlipbookDoc(normalizeProjectPages(project));
+                      }}
                       onRenameProject={handleRenameProject}
                       onExportJson={exportProjectToJson}
                       onImportJson={handleImportJson}
@@ -543,7 +599,6 @@ export default function App() {
                           setSelectedImageSlot(null);
                         }}
                       >
-                        {/* Subtle grid pattern background */}
                         <div
                           className="absolute inset-0 pointer-events-none opacity-10"
                           style={{
@@ -609,16 +664,12 @@ export default function App() {
         </div>
       )}
 
-      {/* Staff Passcode Gate Modal (Code 2526: Full, 2520: Trial View-Only) */}
+      {/* Executive Staff Passcode Gate Modal */}
       <StaffPasscodeModal
         isOpen={showPasscodeModal}
         onClose={() => setShowPasscodeModal(false)}
-        onSuccess={(isTrial) => {
+        onSuccess={() => {
           setIsStaffAuthenticated(true);
-          setIsTrialStaff(!!isTrial);
-          if (isTrial) {
-            setIsAuthorisationUnlocked(true);
-          }
           setShowPasscodeModal(false);
           setAppMode('staff');
           setMainView('newspaper');
@@ -658,7 +709,7 @@ export default function App() {
         />
       )}
 
-      {/* Publish as Current Paper Modal */}
+      {/* Publish / Send to Moderation Modal */}
       {currentProject && (
         <PublishNewspaperModal
           isOpen={isPublishModalOpen}
@@ -676,11 +727,11 @@ export default function App() {
         />
       )}
 
-      {/* Offscreen container holding all sequential newspaper pages for straight PDF export & print */}
+      {/* Offscreen container holding all sequential newspaper pages for crisp PDF export */}
       {currentProject && (
         <div
           ref={offscreenPagesRef}
-          className="fixed top-0 left-0 w-[800px] pointer-events-none opacity-[0.001] -z-50 overflow-hidden"
+          className="fixed left-[-12000px] top-0 w-[800px] opacity-100 pointer-events-none"
           aria-hidden="true"
         >
           {currentProject.pages.map((p) => (

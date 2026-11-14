@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Lock, ShieldAlert, KeyRound, Sparkles, AlertCircle, Unlock } from 'lucide-react';
-import { HomeLockConfig, subscribeHomeLockConfig } from '../../services/firestoreStorage';
+import { HomeLockConfig, subscribeHomeLockConfig, subscribePasscodeSettings } from '../../services/firestoreStorage';
+import { verifyStaffPasscode } from '../../utils/passcodeAuth';
 
 export const HomeScreenLockTakeover: React.FC = () => {
   const [lockConfig, setLockConfig] = useState<HomeLockConfig | null>(null);
@@ -9,12 +10,20 @@ export const HomeScreenLockTakeover: React.FC = () => {
   const [showPinInput, setShowPinInput] = useState<boolean>(false);
   const [pin, setPin] = useState<string>('');
   const [pinError, setPinError] = useState<string>('');
+  const [isVerifying, setIsVerifying] = useState<boolean>(false);
+  const [passcodeHash, setPasscodeHash] = useState<string | null>(null);
 
   useEffect(() => {
-    const unsub = subscribeHomeLockConfig((cfg) => {
+    const unsubLock = subscribeHomeLockConfig((cfg) => {
       setLockConfig(cfg);
     });
-    return () => unsub();
+    const unsubPass = subscribePasscodeSettings((settings) => {
+      setPasscodeHash(settings?.passcodeHash || null);
+    });
+    return () => {
+      unsubLock();
+      unsubPass();
+    };
   }, []);
 
   useEffect(() => {
@@ -54,14 +63,22 @@ export const HomeScreenLockTakeover: React.FC = () => {
   const initialDurationMs = (lockConfig.durationMinutes || 5) * 60 * 1000;
   const progressPercent = Math.min(100, Math.max(0, (timeLeftMs / initialDurationMs) * 100));
 
-  const handleVerifyPasscode = (e: React.FormEvent) => {
+  const handleVerifyPasscode = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (pin.trim() === '2526') {
-      setStaffBypassed(true);
-      setShowPinInput(false);
-      setPinError('');
-    } else {
-      setPinError('Invalid Password.');
+    if (!pin.trim() || isVerifying) return;
+    setIsVerifying(true);
+    try {
+      const valid = await verifyStaffPasscode(pin, passcodeHash);
+      if (valid) {
+        setStaffBypassed(true);
+        setShowPinInput(false);
+        setPinError('');
+        setPin('');
+      } else {
+        setPinError('Invalid Executive Passcode.');
+      }
+    } finally {
+      setIsVerifying(false);
     }
   };
 
@@ -73,7 +90,6 @@ export const HomeScreenLockTakeover: React.FC = () => {
 
       {/* Main Lock Card */}
       <div className="relative max-w-2xl w-full bg-[#111118]/90 border-2 border-amber-500/40 rounded-3xl p-8 sm:p-12 shadow-[0_0_80px_rgba(245,158,11,0.15)] flex flex-col items-center space-y-6 animate-in fade-in zoom-in-95 duration-300">
-        
         {/* Top Header Badge */}
         <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-mono font-bold tracking-widest uppercase">
           <ShieldAlert className="w-4 h-4 animate-pulse" />
@@ -137,6 +153,7 @@ export const HomeScreenLockTakeover: React.FC = () => {
                 <input
                   type="password"
                   value={pin}
+                  disabled={isVerifying}
                   onChange={(e) => setPin(e.target.value)}
                   placeholder="Enter password"
                   className="w-36 bg-neutral-950 border border-amber-500/40 rounded-xl px-3 py-1.5 text-xs text-center font-mono text-amber-300 focus:outline-none"
@@ -144,10 +161,11 @@ export const HomeScreenLockTakeover: React.FC = () => {
                 />
                 <button
                   type="submit"
-                  className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs rounded-xl flex items-center gap-1"
+                  disabled={isVerifying}
+                  className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs rounded-xl flex items-center gap-1 disabled:opacity-50"
                 >
                   <Unlock className="w-3.5 h-3.5" />
-                  <span>Bypass</span>
+                  <span>{isVerifying ? '...' : 'Bypass'}</span>
                 </button>
               </div>
               {pinError && (

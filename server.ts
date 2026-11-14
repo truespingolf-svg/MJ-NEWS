@@ -1,9 +1,21 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
+
+function hashPasscodeSha256(passcode: string): string {
+  return crypto.createHash('sha256').update(passcode.trim()).digest('hex');
+}
+
+function verifyPasscodeMatch(candidate: string, storedPlaintext: string): boolean {
+  const a = Buffer.from(hashPasscodeSha256(candidate), 'utf8');
+  const b = Buffer.from(hashPasscodeSha256(storedPlaintext), 'utf8');
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -28,7 +40,6 @@ const defaultDbData = {
   announcements: [],
   promoCodes: [],
   redemptions: [],
-  marketingApplications: [],
   settings: {
     newsprintTextureEnabled: true,
     staffPasscode: '2513',
@@ -104,12 +115,14 @@ async function startServer() {
     const cleanPublished = isChronicle(dbData.publishedNewspaper) ? null : dbData.publishedNewspaper;
     const cleanArchives = (dbData.archivedNewspapers || []).filter((a: any) => !isChronicle(a));
 
+    const { staffPasscode: _hiddenPasscode, ...publicSettings } = dbData.settings || {};
+
     res.json({
       publishedNewspaper: cleanPublished,
       archivedNewspapers: cleanArchives,
       publicArchives: cleanArchives,
       announcements: (dbData.announcements || []).filter((a: any) => a.active),
-      settings: dbData.settings,
+      settings: publicSettings,
       promoCodes: (dbData.promoCodes || [])
         .filter((c: any) => c.active && c.redemptionsCount < c.maxRedemptions)
         .map((c: any) => ({
@@ -179,56 +192,7 @@ async function startServer() {
     });
   });
 
-  // 3. Public Submit Marketing Team Application (No preferred role field)
-  app.post('/api/public/submit-application', (req, res) => {
-    const { discordUser, fullName, reason } = req.body;
-    if (!discordUser || !discordUser.trim() || !reason || !reason.trim()) {
-      return res.status(400).json({ error: 'Discord username and reason for wanting to work in marketing are required.' });
-    }
-
-    const dbData = loadDb();
-    const newApp = {
-      id: `app-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-      discordUser: discordUser.trim(),
-      fullName: (fullName || 'Anonymous Applicant').trim(),
-      reason: reason.trim(),
-      submittedAt: new Date().toISOString(),
-      status: 'Pending',
-    };
-
-    if (!dbData.marketingApplications) dbData.marketingApplications = [];
-    dbData.marketingApplications.unshift(newApp);
-    saveDb(dbData);
-
-    return res.json({ success: true, application: newApp });
-  });
-
-  // 4. Staff Get Marketing Applications
-  app.get('/api/staff/applications', (_req, res) => {
-    const dbData = loadDb();
-    res.json({ applications: dbData.marketingApplications || [] });
-  });
-
-  app.post('/api/staff/update-application-status', (req, res) => {
-    const { id, status } = req.body;
-    const dbData = loadDb();
-    const appItem = (dbData.marketingApplications || []).find((a: any) => a.id === id);
-    if (appItem) {
-      appItem.status = status;
-      saveDb(dbData);
-      return res.json({ success: true, application: appItem });
-    }
-    return res.status(404).json({ error: 'Application not found' });
-  });
-
-  app.delete('/api/staff/application/:id', (req, res) => {
-    const dbData = loadDb();
-    dbData.marketingApplications = (dbData.marketingApplications || []).filter((a: any) => a.id !== req.params.id);
-    saveDb(dbData);
-    res.json({ success: true });
-  });
-
-  // 5. Staff Publish Newspaper
+  // 3. Staff Publish Newspaper
   app.post('/api/staff/publish', (req, res) => {
     const { project, durationMinutes } = req.body;
     if (!project) {
@@ -428,7 +392,7 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  // 9. Global Settings (Toggle Newsprint Texture & Staff Passcode)
+  // 9. Global Settings (Toggle Newsprint Texture & Secure Passcode Endpoints)
   app.post('/api/staff/settings', (req, res) => {
     const { newsprintTextureEnabled } = req.body;
     const dbData = loadDb();
@@ -436,7 +400,31 @@ async function startServer() {
       dbData.settings.newsprintTextureEnabled = newsprintTextureEnabled;
     }
     saveDb(dbData);
-    res.json({ success: true, settings: dbData.settings });
+    const { staffPasscode: _hiddenPasscode, ...safeSettings } = dbData.settings || {};
+    res.json({ success: true, settings: safeSettings });
+  });
+
+  app.post('/api/staff/verify-passcode', (req, res) => {
+    const passcode = typeof req.body?.passcode === 'string' ? req.body.passcode.trim() : '';
+    if (!passcode) {
+      return res.status(400).json({ valid: false });
+    }
+    const dbData = loadDb();
+    const expected = String(dbData.settings?.staffPasscode || '2513');
+    const valid = verifyPasscodeMatch(passcode, expected);
+    return res.json({ valid });
+  });
+
+  app.post('/api/staff/update-passcode', (req, res) => {
+    const newPasscode = typeof req.body?.newPasscode === 'string' ? req.body.newPasscode.trim() : '';
+    if (newPasscode.length < 4 || newPasscode.length > 16) {
+      return res.status(400).json({ error: 'Passcode must be 4 to 16 characters.' });
+    }
+    const dbData = loadDb();
+    if (!dbData.settings) dbData.settings = { newsprintTextureEnabled: true };
+    dbData.settings.staffPasscode = newPasscode;
+    saveDb(dbData);
+    return res.json({ success: true, passcodeHash: hashPasscodeSha256(newPasscode) });
   });
 
   // 10. Staff AI Newspaper Copilot with Google Search Grounding (gemini-3.8-flash)

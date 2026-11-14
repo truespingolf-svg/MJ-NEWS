@@ -1,10 +1,9 @@
 import { NewspaperProject } from '../types/newspaper.ts';
 import {
-  createStarterProject,
   subscribeProjects,
   saveProjectFirestore,
   deleteProjectFirestore,
-  duplicateProjectFirestore,
+  deleteAllProjectsFirestore,
 } from './firestoreStorage.ts';
 
 const STORAGE_KEY = 'mj_newspaper_studio_projects_v1';
@@ -151,6 +150,24 @@ export function deleteProject(projectId: string): NewspaperProject[] {
     setActiveProjectId(cachedProjects[0].id);
   }
   return cachedProjects;
+}
+
+/**
+ * Deletes ALL newspaper projects from local cache & Firestore.
+ */
+export async function deleteAllProjects(): Promise<NewspaperProject[]> {
+  const existingIds = cachedProjects.map((p) => p.id);
+  cachedProjects = [];
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
+    localStorage.removeItem(ACTIVE_PROJECT_KEY);
+  } catch {
+    // ignore
+  }
+  await deleteAllProjectsFirestore(existingIds).catch((err) =>
+    console.error('Firestore delete all projects error:', err)
+  );
+  return [];
 }
 
 /**

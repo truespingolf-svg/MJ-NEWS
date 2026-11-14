@@ -7,7 +7,6 @@ import {
   Copy,
   Trash2,
   Edit2,
-  Calendar,
   FileText,
   Clock,
   Sparkles,
@@ -17,6 +16,8 @@ import {
   X,
   BookOpen,
   Flame,
+  Send,
+  Eye,
 } from 'lucide-react';
 
 interface DashboardProps {
@@ -25,6 +26,9 @@ interface DashboardProps {
   onOpenProject: (projectId: string) => void;
   onDuplicateProject: (projectId: string) => void;
   onDeleteProject: (projectId: string) => void;
+  onDeleteAllProjects?: () => Promise<void> | void;
+  onPublishProject?: (project: NewspaperProject) => void;
+  onPreviewProject?: (project: NewspaperProject) => void;
   onRenameProject: (projectId: string, newTitle: string) => void;
   onExportJson: (project: NewspaperProject) => void;
   onImportJson: (jsonStr: string) => void;
@@ -36,6 +40,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onOpenProject,
   onDuplicateProject,
   onDeleteProject,
+  onDeleteAllProjects,
+  onPublishProject,
+  onPreviewProject,
   onRenameProject,
   onExportJson,
   onImportJson,
@@ -43,6 +50,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [newTitle, setNewTitle] = useState('');
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
+  const [isDeletingAll, setIsDeletingAll] = useState(false);
 
   // Format date helper
   const formatDate = (dateStr: string) => {
@@ -86,10 +95,21 @@ export const Dashboard: React.FC<DashboardProps> = ({
     e.target.value = '';
   };
 
+  const handleConfirmDeleteAll = async () => {
+    if (!onDeleteAllProjects) return;
+    setIsDeletingAll(true);
+    try {
+      await onDeleteAllProjects();
+    } finally {
+      setIsDeletingAll(false);
+      setConfirmDeleteAll(false);
+    }
+  };
+
   return (
     <div className="min-h-full pb-16 bg-[#070305] text-neutral-100 flex flex-col font-sans">
       {/* Top Banner Navigation */}
-      <header className="border-b border-red-950/80 bg-[#0d0204]/90 backdrop-blur px-8 py-4 flex items-center justify-between sticky top-0 z-20 shadow-xl">
+      <header className="border-b border-red-950/80 bg-[#0d0204]/90 backdrop-blur px-4 sm:px-8 py-4 flex flex-wrap items-center justify-between gap-3 sticky top-0 z-20 shadow-xl">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-red-950/80 border border-red-500/50 flex items-center justify-center text-red-400 shadow-inner">
             <Flame className="w-5 h-5 stroke-[2.2]" />
@@ -102,13 +122,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
               </span>
             </h1>
             <p className="text-xs text-neutral-400 font-mono tracking-wider">
-              Michael Jackson Broadsheet Publishing System
+              Custom Broadsheet Publishing Database
             </p>
           </div>
         </div>
 
-        {/* Create New Newspaper Prominent Action */}
-        <div className="flex items-center gap-3">
+        {/* Create New Newspaper & Import Actions */}
+        <div className="flex flex-wrap items-center gap-2.5">
           <label className="cursor-pointer flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-neutral-300 hover:text-white bg-[#14080b] hover:bg-[#200a10] border border-red-950 rounded-xl transition-colors">
             <Upload className="w-3.5 h-3.5 text-red-400" />
             <span>Import Project JSON</span>
@@ -127,19 +147,19 @@ export const Dashboard: React.FC<DashboardProps> = ({
       </header>
 
       {/* Main Dashboard Workspace */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-8 space-y-8">
+      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-8 space-y-8">
         {/* Newsroom Hero Pitch */}
-        <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-[#180508] via-[#0d0204] to-[#120306] border border-red-900/80 p-8 shadow-2xl">
+        <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-[#180508] via-[#0d0204] to-[#120306] border border-red-900/80 p-6 sm:p-8 shadow-2xl">
           <div className="relative z-10 max-w-2xl space-y-3">
             <div className="flex items-center gap-2 text-xs font-mono font-bold uppercase tracking-widest text-red-400">
               <Sparkles className="w-3.5 h-3.5 text-red-400" />
               <span>MJJ RECORDS BROADSHEET PRESSROOM</span>
             </div>
-            <h2 className="font-serif text-3xl font-bold tracking-tight text-white leading-tight">
-              Create, customize, and publish authentic Michael Jackson broadsheet editions.
+            <h2 className="font-serif text-2xl sm:text-3xl font-bold tracking-tight text-white leading-tight">
+              Create, customize, and publish authentic broadsheet editions.
             </h2>
             <p className="text-sm text-neutral-300 leading-relaxed font-sans">
-              Choose from multi-column interior templates, upload photographs directly from your device, tailor headlines and articles, and publish print-ready broadsheets with historical typography.
+              Only the newspapers you create are stored here. Choose from 9 fully editable layouts, upload photographs from your device, download multi-page PDFs, and publish live or send to moderation.
             </p>
             <div className="pt-2 flex items-center gap-4">
               <button
@@ -155,23 +175,61 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
         {/* Section: My Newspapers */}
         <div className="space-y-4">
-          <div className="flex items-center justify-between border-b border-red-950/80 pb-3">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-red-950/80 pb-3">
             <div className="flex items-center gap-2">
               <BookOpen className="w-5 h-5 text-red-400" />
               <h2 className="text-lg font-serif font-bold tracking-tight text-white uppercase">
                 My Newspapers ({projects.length})
               </h2>
             </div>
-            <span className="text-xs text-neutral-400 font-mono">
-              Saved broadsheet projects
-            </span>
+
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-neutral-400 font-mono hidden sm:inline">
+                Saved broadsheet database
+              </span>
+
+              {projects.length > 0 && onDeleteAllProjects && (
+                confirmDeleteAll ? (
+                  <div className="flex items-center gap-2 bg-rose-950/90 border border-rose-500/60 px-3 py-1.5 rounded-xl">
+                    <span className="text-[11px] font-bold text-rose-200">
+                      Delete all {projects.length} projects?
+                    </span>
+                    <button
+                      type="button"
+                      disabled={isDeletingAll}
+                      onClick={handleConfirmDeleteAll}
+                      className="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-black cursor-pointer disabled:opacity-50"
+                    >
+                      {isDeletingAll ? 'Deleting...' : 'Confirm Delete All'}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isDeletingAll}
+                      onClick={() => setConfirmDeleteAll(false)}
+                      className="px-2 py-1 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-[11px] font-semibold cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDeleteAll(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-950/60 hover:bg-rose-900/70 text-rose-300 border border-rose-500/40 text-xs font-bold transition-all cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete All Projects</span>
+                  </button>
+                )
+              )}
+            </div>
           </div>
 
           {/* Projects Grid */}
           {projects.length === 0 ? (
             <div className="bg-[#100407] border border-dashed border-red-950/80 rounded-2xl p-12 text-center text-xs text-neutral-500 font-mono space-y-3">
               <Newspaper className="w-8 h-8 text-red-900/80 mx-auto" />
-              <p>No broadsheet projects created yet. Click "Create New Newspaper" above to draft your edition!</p>
+              <p>No broadsheet projects yet. Click &ldquo;Create New Newspaper&rdquo; above to create your first edition.</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -259,15 +317,38 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     </div>
 
                     {/* Card Actions Footer */}
-                    <div className="p-3 border-t border-red-950/80 bg-[#0d0204]/80 flex items-center justify-between text-xs">
-                      <button
-                        onClick={() => onOpenProject(project.id)}
-                        className="px-3.5 py-1.5 bg-[#1f070c] hover:bg-red-600 hover:text-white text-red-300 font-bold text-xs rounded-xl transition-all cursor-pointer border border-red-500/30"
-                      >
-                        Open Editor
-                      </button>
+                    <div className="p-3 border-t border-red-950/80 bg-[#0d0204]/80 flex flex-wrap items-center justify-between gap-2 text-xs">
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => onOpenProject(project.id)}
+                          className="px-3 py-1.5 bg-[#1f070c] hover:bg-red-600 hover:text-white text-red-300 font-bold text-xs rounded-xl transition-all cursor-pointer border border-red-500/30"
+                        >
+                          Open Editor
+                        </button>
+
+                        {onPublishProject && (
+                          <button
+                            onClick={() => onPublishProject(project)}
+                            className="px-2.5 py-1.5 bg-amber-500/15 hover:bg-amber-400 hover:text-black text-amber-300 font-bold text-xs rounded-xl transition-all cursor-pointer border border-amber-500/40 flex items-center gap-1"
+                            title="Publish or Send to Moderation"
+                          >
+                            <Send className="w-3 h-3" />
+                            <span>Publish / Mod</span>
+                          </button>
+                        )}
+                      </div>
 
                       <div className="flex items-center gap-1">
+                        {onPreviewProject && (
+                          <button
+                            onClick={() => onPreviewProject(project)}
+                            className="p-1.5 text-neutral-400 hover:text-amber-300 rounded hover:bg-neutral-800 cursor-pointer"
+                            title="Preview in 3D Flipbook"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+
                         <button
                           onClick={() => onExportJson(project)}
                           className="p-1.5 text-neutral-400 hover:text-white rounded hover:bg-neutral-800"

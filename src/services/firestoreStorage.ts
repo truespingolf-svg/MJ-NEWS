@@ -15,8 +15,9 @@ import {
 import { db, auth } from '../firebase.ts';
 import type { User } from 'firebase/auth';
 import { NewspaperProject } from '../types/newspaper.ts';
-import { createNewProject, createInteriorPage } from '../utils/newspaperLogic.ts';
 import { processMediaForStorage } from './localMediaRegistry.ts';
+import { sanitizeForFirestore, estimateJsonBytes } from '../utils/firestoreSanitize.ts';
+import { getGlobalVoteCooldown, formatCooldownDuration } from '../utils/votingCooldown.ts';
 
 export enum OperationType {
   CREATE = 'create',
@@ -116,10 +117,10 @@ export function subscribeProjects(callback: (projects: NewspaperProject[]) => vo
 
 export async function saveProjectFirestore(project: NewspaperProject): Promise<boolean> {
   const path = `projects/${project.id}`;
-  const updatedProject = {
+  const updatedProject = sanitizeForFirestore({
     ...project,
     updatedAt: new Date().toISOString(),
-  };
+  });
 
   // Immediate local cache update
   try {
@@ -132,12 +133,17 @@ export async function saveProjectFirestore(project: NewspaperProject): Promise<b
     console.warn('Local storage cache update note:', e);
   }
 
+  if (estimateJsonBytes(updatedProject) > 980_000) {
+    console.warn('Project exceeds Firestore 1MB limit; saved locally.');
+    return false;
+  }
+
   try {
     await setDoc(doc(db, 'projects', project.id), updatedProject);
     return true;
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, path);
-    return true; // Still preserved locally
+    return false;
   }
 }
 
@@ -153,6 +159,34 @@ export async function deleteProjectFirestore(projectId: string): Promise<boolean
     return true;
   } catch (err) {
     handleFirestoreError(err, OperationType.DELETE, path);
+    return false;
+  }
+}
+
+export async function deleteAllProjectsFirestore(knownIds: string[] = []): Promise<boolean> {
+  try {
+    localStorage.setItem(LOCAL_STORAGE_BACKUP_KEY, JSON.stringify([]));
+    localStorage.removeItem(ACTIVE_PROJECT_KEY);
+  } catch {
+    // ignore
+  }
+
+  try {
+    const colRef = collection(db, 'projects');
+    const snap = await getDocs(colRef);
+    const idsToDelete = new Set<string>(knownIds);
+    snap.forEach((d) => idsToDelete.add(d.id));
+
+    await Promise.all(
+      Array.from(idsToDelete).map((id) =>
+        deleteDoc(doc(db, 'projects', id)).catch((err) =>
+          handleFirestoreError(err, OperationType.DELETE, `projects/${id}`)
+        )
+      )
+    );
+    return true;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, 'projects');
     return false;
   }
 }
@@ -228,14 +262,19 @@ export function subscribePublishedNewspaper(callback: (pub: any) => void): () =>
 export async function submitModerationFirestore(project: NewspaperProject, durationMinutes: number): Promise<boolean> {
   const subId = `sub-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
   const safeDuration = Math.max(1, Math.round(Number(durationMinutes) || 1440));
-  const subData = {
+  const subData = sanitizeForFirestore({
     id: subId,
     project,
     projectTitle: project.title || 'MJJ Records Broadsheet Press',
     durationMinutes: safeDuration,
     submittedAt: new Date().toISOString(),
     status: 'Pending Moderation',
-  };
+  });
+
+  if (estimateJsonBytes(subData) > 980_000) {
+    console.error('Submission exceeds 1MB Firestore document limit.');
+    return false;
+  }
 
   try {
     await setDoc(doc(db, 'submissions', subId), subData);
@@ -273,7 +312,7 @@ export async function acceptSubmissionFirestore(submissionId: string): Promise<b
     const expiresAt = new Date(now.getTime() + durationMinutes * 60 * 1000);
     const pubId = submission.project.id || `project-${Date.now()}`;
 
-    const publishedRecord = {
+    const publishedRecord = sanitizeForFirestore({
       id: pubId,
       projectId: pubId,
       projectTitle: submission.projectTitle,
@@ -285,9 +324,8 @@ export async function acceptSubmissionFirestore(submissionId: string): Promise<b
       durationMinutes,
       isActive: true,
       projectData: submission.project,
-    };
+    });
 
-    // Update system live published doc and store in published newspapers collection
     await setDoc(doc(db, 'system', 'publishedNewspaper'), publishedRecord);
     await setDoc(doc(db, 'newspapers', pubId), publishedRecord);
     await deleteDoc(doc(db, 'submissions', submissionId));
@@ -315,7 +353,7 @@ export async function publishDirectFirestore(project: NewspaperProject, duration
   const projectTitle = project.title || 'MJJ Records Broadsheet Press';
   const pubId = project.id || `project-${Date.now()}`;
 
-  const publishedRecord = {
+  const publishedRecord = sanitizeForFirestore({
     id: pubId,
     projectId: pubId,
     projectTitle,
@@ -327,7 +365,12 @@ export async function publishDirectFirestore(project: NewspaperProject, duration
     durationMinutes: safeMinutes,
     isActive: true,
     projectData: project,
-  };
+  });
+
+  if (estimateJsonBytes(publishedRecord) > 980_000) {
+    console.error('Published newspaper exceeds 1MB Firestore document limit.');
+    return false;
+  }
 
   try {
     await setDoc(doc(db, 'system', 'publishedNewspaper'), publishedRecord);
@@ -645,71 +688,7 @@ export async function redeemCodeFirestore(
 }
 
 // -------------------------------------------------------------
-// 5. REAL-TIME MARKETING APPLICATIONS
-// -------------------------------------------------------------
-
-export function subscribeMarketingApplications(callback: (apps: any[]) => void): () => void {
-  const colRef = collection(db, 'marketingApplications');
-  return onSnapshot(
-    colRef,
-    (snap) => {
-      const list: any[] = [];
-      snap.forEach((d) => list.push(d.data()));
-      list.sort((a, b) => new Date(b.submittedAt || 0).getTime() - new Date(a.submittedAt || 0).getTime());
-      callback(list);
-    },
-    (err) => {
-      handleFirestoreError(err, OperationType.LIST, 'marketingApplications');
-    }
-  );
-}
-
-export async function submitApplicationFirestore(data: {
-  discordUser: string;
-  fullName?: string;
-  reason: string;
-}): Promise<boolean> {
-  const id = `app-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-  const appDoc = {
-    id,
-    discordUser: data.discordUser.trim(),
-    fullName: (data.fullName || 'Anonymous Applicant').trim(),
-    reason: data.reason.trim(),
-    submittedAt: new Date().toISOString(),
-    status: 'Pending',
-  };
-
-  try {
-    await setDoc(doc(db, 'marketingApplications', id), appDoc);
-    return true;
-  } catch (err) {
-    handleFirestoreError(err, OperationType.WRITE, `marketingApplications/${id}`);
-    return false;
-  }
-}
-
-export async function updateApplicationStatusFirestore(id: string, status: string): Promise<boolean> {
-  try {
-    await setDoc(doc(db, 'marketingApplications', id), { status }, { merge: true });
-    return true;
-  } catch (err) {
-    handleFirestoreError(err, OperationType.UPDATE, `marketingApplications/${id}`);
-    return false;
-  }
-}
-
-export async function deleteApplicationFirestore(id: string): Promise<boolean> {
-  try {
-    await deleteDoc(doc(db, 'marketingApplications', id));
-    return true;
-  } catch (err) {
-    handleFirestoreError(err, OperationType.DELETE, `marketingApplications/${id}`);
-    return false;
-  }
-}
-
-// -------------------------------------------------------------
-// 6. REAL-TIME USER PROFILES, GOOGLE AUTH, POINTS & COMMUNITY
+// 5. REAL-TIME USER PROFILES, GOOGLE AUTH, POINTS & COMMUNITY
 // -------------------------------------------------------------
 
 export interface UserTicketGrant {
@@ -756,6 +735,7 @@ export interface UserProfile {
   role?: string;
   reactedNewspaperIds: string[];
   votedUserIds: string[];
+  lastVoteTimestamp?: number;
   lastVotedMap?: Record<string, number>;
   tickets: UserTicketGrant[];
   assignedCodes: UserAssignedCode[];
@@ -952,7 +932,7 @@ export function subscribeNewspaperReactions(
   );
 }
 
-// Upvote / vote for player (+1 vote and configurable points to target player, 5-hour cooldown per target)
+// Upvote / vote for player (+1 vote and configurable points to target player, 1 vote every 2 hours across ALL players)
 export async function voteForUser(
   voterUid: string,
   targetUid: string
@@ -963,8 +943,6 @@ export async function voteForUser(
   if (voterUid === targetUid) {
     return { success: false, message: 'You cannot vote for yourself!' };
   }
-
-  const VOTE_COOLDOWN_MS = 5 * 60 * 60 * 1000; // 5 Hours (18,000,000 ms)
 
   try {
     const configSnap = await getDoc(doc(db, 'system', 'votingConfig'));
@@ -981,31 +959,29 @@ export async function voteForUser(
     const voter = voterSnap.data() as UserProfile;
     const target = targetSnap.data() as UserProfile;
 
-    // Check 5-hour voting cooldown for this target user
-    const lastVotedMap = voter.lastVotedMap || {};
-    const lastVotedTime = lastVotedMap[targetUid] || 0;
-    const elapsed = Date.now() - lastVotedTime;
+    // Enforce global 2-hour per-voter cooldown across ALL targets
+    const now = Date.now();
+    const cooldown = getGlobalVoteCooldown(voter, now);
 
-    if (lastVotedTime > 0 && elapsed < VOTE_COOLDOWN_MS) {
-      const remainingMs = VOTE_COOLDOWN_MS - elapsed;
-      const hours = Math.floor(remainingMs / (3600 * 1000));
-      const mins = Math.ceil((remainingMs % (3600 * 1000)) / (60 * 1000));
+    if (!cooldown.canVote) {
       return {
         success: false,
-        message: `⏳ Voting Cooldown: You can vote for @${target.discordUser || target.displayName} again in ${hours}h ${mins}m! (1 vote allowed every 5 hours)`,
+        message: `Voting cooldown active: you can cast 1 vote every 2 hours. Next vote available in ${formatCooldownDuration(cooldown.remainingMs)}.`,
       };
     }
 
+    const lastVotedMap = voter.lastVotedMap || {};
     const votedList = voter.votedUserIds || [];
-    const updatedLastVotedMap = { ...lastVotedMap, [targetUid]: Date.now() };
+    const updatedLastVotedMap = { ...lastVotedMap, [targetUid]: now };
 
     // Update voter's record
     await setDoc(
       voterRef,
       {
         votedUserIds: Array.from(new Set([...votedList, targetUid])),
+        lastVoteTimestamp: now,
         lastVotedMap: updatedLastVotedMap,
-        updatedAt: new Date().toISOString(),
+        updatedAt: new Date(now).toISOString(),
       },
       { merge: true }
     );
@@ -1016,14 +992,14 @@ export async function voteForUser(
       {
         votes: (target.votes || 0) + 1,
         points: (target.points || 0) + pointsPerVote,
-        updatedAt: new Date().toISOString(),
+        updatedAt: new Date(now).toISOString(),
       },
       { merge: true }
     );
 
     return {
       success: true,
-      message: `🎉 Vote cast! @${target.discordUser || target.displayName} received +1 Vote and +${pointsPerVote.toLocaleString()} Points!`,
+      message: `Vote cast! @${target.discordUser || target.displayName} received +1 Vote and +${pointsPerVote.toLocaleString()} PTS. Next vote unlocks in 2 hours.`,
     };
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, `users/${targetUid}`);
@@ -1744,6 +1720,36 @@ export async function deleteChallengeFirestore(challengeId: string): Promise<boo
   }
 }
 
+export async function deleteChallengeEntryFirestore(entryId: string): Promise<boolean> {
+  if (!entryId) return false;
+  try {
+    await deleteDoc(doc(db, 'challengeEntries', entryId));
+    return true;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, `challengeEntries/${entryId}`);
+    return false;
+  }
+}
+
+async function lookupPendingDiscordAssignment(
+  cleanDiscord: string
+): Promise<{ role?: string; notifications?: any[] }> {
+  try {
+    const pendingRef = doc(db, 'users', `discord-${cleanDiscord.toLowerCase()}`);
+    const pendingSnap = await getDoc(pendingRef);
+    if (pendingSnap.exists()) {
+      const data = pendingSnap.data() as any;
+      return {
+        role: data.role,
+        notifications: Array.isArray(data.notifications) ? data.notifications : [],
+      };
+    }
+  } catch {
+    // ignore lookup error
+  }
+  return {};
+}
+
 // Foolproof community login / profile creator (supports direct Discord / display name when Google popup is blocked)
 export async function loginOrCreateCommunityPlayer(
   discordUser: string,
@@ -1756,7 +1762,11 @@ export async function loginOrCreateCommunityPlayer(
 
   const userRef = doc(db, 'users', cleanUid);
   try {
-    const snap = await getDoc(userRef);
+    const [snap, pending] = await Promise.all([
+      getDoc(userRef),
+      lookupPendingDiscordAssignment(cleanDiscord),
+    ]);
+
     if (snap.exists()) {
       const existing = snap.data() as UserProfile;
       const updated: UserProfile = {
@@ -1765,9 +1775,10 @@ export async function loginOrCreateCommunityPlayer(
         discordUsername: cleanDiscord,
         displayName: displayName || existing.displayName || cleanDiscord,
         photoURL: photoURL || existing.photoURL || null,
+        role: existing.role || pending.role || undefined,
         updatedAt: now,
       };
-      await setDoc(userRef, updated, { merge: true });
+      await setDoc(userRef, sanitizeForFirestore(updated), { merge: true });
       return updated;
     } else {
       const newProfile: UserProfile = {
@@ -1776,7 +1787,9 @@ export async function loginOrCreateCommunityPlayer(
         displayName: displayName || cleanDiscord,
         discordUser: cleanDiscord,
         discordUsername: cleanDiscord,
-        points: 1000, // Welcome gift of 1,000 points!
+        role: pending.role || undefined,
+        notifications: pending.notifications || [],
+        points: 1000,
         votes: 0,
         photoURL: photoURL || null,
         reactedNewspaperIds: [],
@@ -1786,7 +1799,7 @@ export async function loginOrCreateCommunityPlayer(
         createdAt: now,
         updatedAt: now,
       };
-      await setDoc(userRef, newProfile);
+      await setDoc(userRef, sanitizeForFirestore(newProfile));
       return newProfile;
     }
   } catch (err) {
@@ -1815,10 +1828,13 @@ export async function loginOrCreateCommunityPlayerWithPassword(
   const userRef = doc(db, 'users', cleanUid);
 
   try {
-    const snap = await getDoc(userRef);
+    const [snap, pending] = await Promise.all([
+      getDoc(userRef),
+      lookupPendingDiscordAssignment(cleanDiscord),
+    ]);
+
     if (snap.exists()) {
       const existing = snap.data() as UserProfile;
-      // If user already set a password, verify it
       if (existing.accountPassword && existing.accountPassword !== passwordInput.trim()) {
         return {
           success: false,
@@ -1826,7 +1842,6 @@ export async function loginOrCreateCommunityPlayerWithPassword(
         };
       }
 
-      // Update password & login
       const updated: UserProfile = {
         ...existing,
         discordUser: cleanDiscord,
@@ -1834,12 +1849,12 @@ export async function loginOrCreateCommunityPlayerWithPassword(
         accountPassword: passwordInput.trim(),
         displayName: displayName || existing.displayName || cleanDiscord,
         photoURL: photoURL || existing.photoURL || null,
+        role: existing.role || pending.role || undefined,
         updatedAt: now,
       };
-      await setDoc(userRef, updated, { merge: true });
+      await setDoc(userRef, sanitizeForFirestore(updated), { merge: true });
       return { success: true, profile: updated };
     } else {
-      // Create new account with password
       const newProfile: UserProfile = {
         uid: cleanUid,
         email: null,
@@ -1847,7 +1862,9 @@ export async function loginOrCreateCommunityPlayerWithPassword(
         discordUser: cleanDiscord,
         discordUsername: cleanDiscord,
         accountPassword: passwordInput.trim(),
-        points: 1000, // Welcome gift of 1,000 points!
+        role: pending.role || undefined,
+        notifications: pending.notifications || [],
+        points: 1000,
         votes: 0,
         photoURL: photoURL || null,
         reactedNewspaperIds: [],
@@ -1858,7 +1875,7 @@ export async function loginOrCreateCommunityPlayerWithPassword(
         createdAt: now,
         updatedAt: now,
       };
-      await setDoc(userRef, newProfile);
+      await setDoc(userRef, sanitizeForFirestore(newProfile));
       return { success: true, profile: newProfile };
     }
   } catch (err) {
@@ -2606,13 +2623,43 @@ export async function assignApplicantRoleAndNotifyFirestore(
   }
 }
 
+export async function updateUserRoleFirestore(
+  uid: string,
+  role: string,
+  staffActor: string = 'Staff Executive'
+): Promise<boolean> {
+  if (!uid) return false;
+  try {
+    await setDoc(
+      doc(db, 'users', uid),
+      {
+        role,
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
+    await addStaffAuditLogFirestore({
+      staffName: staffActor,
+      staffRole: 'ADMINISTRATOR',
+      actionType: 'ADJUST_POINTS',
+      targetEntityId: uid,
+      targetEntityLabel: uid,
+      details: `Updated user role to "${role}"`,
+    });
+    return true;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, `users/${uid}`);
+    return false;
+  }
+}
+
 // -------------------------------------------------------------
 // 18. PASSCODE SECURITY & SETTINGS
 // -------------------------------------------------------------
 
 export interface PasscodeSettings {
-  fullPasscode: string;
-  trialPasscode: string;
+  passcodeHash?: string | null;
+  updatedAt?: string;
 }
 
 export function subscribePasscodeSettings(callback: (settings: PasscodeSettings) => void): () => void {
@@ -2621,26 +2668,33 @@ export function subscribePasscodeSettings(callback: (settings: PasscodeSettings)
     docRef,
     (snap) => {
       if (snap.exists()) {
-        callback(snap.data() as PasscodeSettings);
-      } else {
+        const data = snap.data() as any;
         callback({
-          fullPasscode: '2526',
-          trialPasscode: '2520',
+          passcodeHash: data?.passcodeHash || null,
+          updatedAt: data?.updatedAt,
         });
+      } else {
+        callback({ passcodeHash: null });
       }
     },
     () => {
-      callback({
-        fullPasscode: '2526',
-        trialPasscode: '2520',
-      });
+      callback({ passcodeHash: null });
     }
   );
 }
 
 export async function setPasscodeSettingsFirestore(settings: Partial<PasscodeSettings>): Promise<boolean> {
   try {
-    await setDoc(doc(db, 'system', 'passcodeSettings'), settings, { merge: true });
+    await setDoc(
+      doc(db, 'system', 'passcodeSettings'),
+      {
+        passcodeHash: settings.passcodeHash || null,
+        fullPasscode: null,
+        trialPasscode: null,
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
     return true;
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, 'system/passcodeSettings');

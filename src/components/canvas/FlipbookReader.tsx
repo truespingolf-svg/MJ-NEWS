@@ -1,6 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { NewspaperProject } from '../../types/newspaper.ts';
 import { NewspaperPageRenderer } from './NewspaperPageRenderer.tsx';
+import { downloadProjectPdf } from '../../services/pdfExport.ts';
+import { ensurePageEditableSlots } from '../../utils/newspaperLogic.ts';
 import {
   X,
   ChevronLeft,
@@ -13,7 +15,7 @@ import {
   BookOpen,
   Volume2,
   Gift,
-  Search,
+  Download,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -48,11 +50,17 @@ export const FlipbookReader: React.FC<FlipbookReaderProps> = ({
   const [pageFlipping, setPageFlipping] = useState<boolean>(false);
   const [fetchedCodes, setFetchedCodes] = useState<PromoCodeItem[]>([]);
   const [copiedToast, setCopiedToast] = useState<string>('');
+  const [isExportingPdf, setIsExportingPdf] = useState<boolean>(false);
+  const [exportStatus, setExportStatus] = useState<string>('');
+  const pdfContainerRef = useRef<HTMLDivElement>(null);
 
   const [dismissedCodes, setDismissedCodes] = useState<Set<string>>(new Set());
 
-  const totalPages = project.pages?.length || 1;
-  const currentPage = project.pages?.[currentPageIndex] || project.pages?.[0];
+  const safePages = (project.pages && project.pages.length > 0 ? project.pages : []).map((p, idx) =>
+    ensurePageEditableSlots({ ...p, pageNumber: p.pageNumber || idx + 1 }, p.layoutId)
+  );
+  const totalPages = safePages.length || 1;
+  const currentPage = safePages[currentPageIndex] || safePages[0];
 
   const fallbackCopyText = (text: string) => {
     try {
@@ -121,7 +129,6 @@ export const FlipbookReader: React.FC<FlipbookReaderProps> = ({
     const currentDocId = project.id || (project as any).projectId || '';
     const currentDocTitle = (project.title || '').toLowerCase().trim();
 
-    // Find codes for this project (or 'all') and this page index
     const matchingCodes = sourceCodes.filter((c) => {
       const cProj = (c.projectId || 'all').toLowerCase();
       const projMatch =
@@ -131,7 +138,7 @@ export const FlipbookReader: React.FC<FlipbookReaderProps> = ({
         (currentDocTitle && cProj.includes(currentDocTitle));
 
       const pageNum = Number(c.pageIndex);
-      const targetPage = currentPageIndex + 1; // 1-indexed page
+      const targetPage = currentPageIndex + 1;
       const pageMatch =
         c.pageIndex === undefined ||
         c.pageIndex === null ||
@@ -144,14 +151,12 @@ export const FlipbookReader: React.FC<FlipbookReaderProps> = ({
 
     if (matchingCodes.length > 0) {
       const selected = matchingCodes[0];
-      // If user already copied or dismissed this code, do not re-show
       if (dismissedCodes.has(selected.code)) return;
 
       setDiscoveredCode(selected.code);
       if (selected.customMessage) {
         setDiscoveredMessage(selected.customMessage);
       }
-      // Confetti effect when secret code discovered!
       try {
         confetti({
           particleCount: 50,
@@ -191,7 +196,7 @@ export const FlipbookReader: React.FC<FlipbookReaderProps> = ({
 
   const handleCopyCode = (codeStr: string) => {
     setDismissedCodes((prev) => new Set(prev).add(codeStr));
-    setDiscoveredCode(null); // Goes away immediately as requested!
+    setDiscoveredCode(null);
 
     try {
       if (navigator?.clipboard?.writeText) {
@@ -212,10 +217,29 @@ export const FlipbookReader: React.FC<FlipbookReaderProps> = ({
   const handleClaimDirectly = (codeStr: string) => {
     setDismissedCodes((prev) => new Set(prev).add(codeStr));
     setDiscoveredCode(null);
-    onClose(); // Close flipbook so user is right on the Redeem Modal!
+    onClose();
     if (onNavigateToRedeem) {
       onNavigateToRedeem(codeStr);
     }
+  };
+
+  const handleDownloadFlipbookPdf = async () => {
+    if (isExportingPdf) return;
+    setIsExportingPdf(true);
+    setExportStatus('Preparing PDF...');
+    const ok = await downloadProjectPdf(
+      { ...project, pages: safePages },
+      pdfContainerRef.current,
+      (msg) => setExportStatus(msg)
+    );
+    if (ok) {
+      setCopiedToast('PDF saved to your device!');
+      setTimeout(() => setCopiedToast(''), 3500);
+    }
+    setTimeout(() => {
+      setIsExportingPdf(false);
+      setExportStatus('');
+    }, 1500);
   };
 
   return (
@@ -296,7 +320,7 @@ export const FlipbookReader: React.FC<FlipbookReaderProps> = ({
           </div>
         </div>
 
-        {/* Center Page Stepper - Large Touch Targets for iPads */}
+        {/* Center Page Stepper */}
         <div className="flex items-center gap-1 sm:gap-2 bg-[#181820] border border-[#2e2e3e] rounded-xl px-2 sm:px-3 py-1 shrink-0">
           <button
             onClick={handlePrevPage}
@@ -321,8 +345,19 @@ export const FlipbookReader: React.FC<FlipbookReaderProps> = ({
           </button>
         </div>
 
-        {/* Controls: Zoom, Auto-Fit, Fullscreen, Close */}
-        <div className="flex items-center gap-2 shrink-0">
+        {/* Controls: Download PDF, Zoom, Auto-Fit, Fullscreen, Close */}
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={handleDownloadFlipbookPdf}
+            disabled={isExportingPdf}
+            aria-label="Download Broadsheet PDF"
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 disabled:opacity-60 text-black font-black text-xs shadow-md transition-all cursor-pointer min-h-[36px]"
+          >
+            <Download className="w-3.5 h-3.5 stroke-[2.5]" />
+            <span>{isExportingPdf ? (exportStatus || 'Downloading PDF...') : 'Download PDF'}</span>
+          </button>
+
           <div className="flex items-center gap-1 bg-[#181820] border border-[#2e2e3e] rounded-lg p-0.5 text-xs">
             <button
               onClick={() => setZoom((z) => Math.max(0.4, Number((z - 0.08).toFixed(2))))}
@@ -374,7 +409,6 @@ export const FlipbookReader: React.FC<FlipbookReaderProps> = ({
 
       {/* Main Flipbook Canvas Stage */}
       <div className="flex-1 overflow-auto bg-[#08080b] p-2 sm:p-6 flex flex-col items-center justify-start relative">
-        {/* Background Grid */}
         <div
           className="absolute inset-0 opacity-10 pointer-events-none"
           style={{
@@ -384,7 +418,6 @@ export const FlipbookReader: React.FC<FlipbookReaderProps> = ({
           }}
         />
 
-        {/* Left Arrow Button - iPad Touch Target */}
         <button
           onClick={handlePrevPage}
           disabled={currentPageIndex === 0}
@@ -395,7 +428,6 @@ export const FlipbookReader: React.FC<FlipbookReaderProps> = ({
           <ChevronLeft className="w-6 h-6 sm:w-7 sm:h-7 stroke-[2.5]" />
         </button>
 
-        {/* Right Arrow Button - iPad Touch Target */}
         <button
           onClick={handleNextPage}
           disabled={currentPageIndex === totalPages - 1}
@@ -406,17 +438,14 @@ export const FlipbookReader: React.FC<FlipbookReaderProps> = ({
           <ChevronRight className="w-6 h-6 sm:w-7 sm:h-7 stroke-[2.5]" />
         </button>
 
-        {/* 3D Paper Flip Container - Centered and Non-clipping */}
         <div
           className={`transition-all duration-300 ease-in-out origin-top relative shadow-[0_0_60px_rgba(0,0,0,0.85)] my-2 sm:my-4 ${
             pageFlipping ? '-rotate-y-30 scale-95 opacity-60' : 'rotate-y-0 scale-100 opacity-100'
           }`}
           style={{ transform: `scale(${zoom})` }}
         >
-          {/* Authentic Paper Page Shadow & Edge Spine */}
           <div className="absolute inset-y-0 left-0 w-8 bg-gradient-to-r from-black/25 to-transparent z-20 pointer-events-none" />
 
-          {/* Render Active Broadsheet Page */}
           {currentPage && (
             <div className="relative">
               <NewspaperPageRenderer
@@ -430,6 +459,26 @@ export const FlipbookReader: React.FC<FlipbookReaderProps> = ({
             </div>
           )}
         </div>
+      </div>
+
+      {/* Offscreen full-opacity multi-page PDF capture container */}
+      <div
+        ref={pdfContainerRef}
+        className="fixed left-[-12000px] top-0 w-[800px] opacity-100 pointer-events-none"
+        aria-hidden="true"
+      >
+        {safePages.map((p) => (
+          <div key={p.id} className="export-page-target newspaper-print-page bg-white">
+            <NewspaperPageRenderer
+              page={p}
+              selectedElementId={null}
+              selectedImageSlot={null}
+              onSelectText={() => {}}
+              onSelectImage={() => {}}
+              previewMode={true}
+            />
+          </div>
+        ))}
       </div>
 
       {/* Reader Footer Controls */}

@@ -336,22 +336,12 @@ export const NewspaperPageRenderer: React.FC<NewspaperPageRendererProps> = ({
               {/* Third column editorial notes */}
               <div className="col-span-4 flex flex-col justify-between">
                 <div className="bg-[#ece8df] p-2.5 border border-[#d4cebe]">
-                  <span className="font-oswald text-[10px] uppercase font-bold text-[#78350f] tracking-wider block mb-1">
-                    BULLETIN & ARCHIVE INDEX
-                  </span>
-                  <p className="font-source-serif text-xs leading-relaxed text-[#262420]">
-                    The King of Pop Chronicle documents milestone studio masters, world tour routing,
-                    and choreography innovations. Turn to internal pages for complete stadium coverage,
-                    special photographs, and eyewitness accounts.
-                  </p>
+                  {renderText('bulletinTitle', { customClass: 'mb-1' })}
+                  {renderText('bulletinBody')}
                 </div>
                 <div className="border-t border-[#a39e93] pt-2 mt-2">
-                  <div className="font-oswald text-xs uppercase font-bold text-[#151412]">
-                    WEATHER & CIRCULATION
-                  </div>
-                  <p className="font-source-serif text-[11px] text-[#524d45] mt-0.5">
-                    Clear skies globally for stadium spectacles. Worldwide press wire distribution.
-                  </p>
+                  {renderText('weatherTitle')}
+                  {renderText('weatherBody', { customClass: 'mt-0.5' })}
                 </div>
               </div>
             </div>
@@ -488,10 +478,8 @@ export const NewspaperPageRenderer: React.FC<NewspaperPageRendererProps> = ({
               </div>
               <div>
                 {renderText('pullQuote', { customClass: 'mb-3' })}
-                <p className="font-source-serif text-xs leading-relaxed text-[#383531]">
-                  Special dispatch continuing across archival editions. Preserving the definitive history
-                  of record-shattering singles and iconic performances.
-                </p>
+                {renderText('columnNoteTitle', { customClass: 'mb-1' })}
+                {renderText('columnNoteBody')}
               </div>
             </div>
           </div>
@@ -561,12 +549,8 @@ export const NewspaperPageRenderer: React.FC<NewspaperPageRendererProps> = ({
               <div className="col-span-4 flex flex-col justify-between">
                 {renderImageSlot('image3', 'h-[360px]')}
                 <div className="border-t border-[#d4cebe] pt-2 mt-2">
-                  <span className="font-oswald text-[10px] uppercase font-bold text-[#151412] block mb-1">
-                    CURATORIAL DISPATCH
-                  </span>
-                  <p className="font-source-serif text-[11px] text-[#524d45] leading-snug">
-                    Archival photographs calibrated for authentic letterpress reproduction.
-                  </p>
+                  {renderText('columnNoteTitle', { customClass: 'mb-1' })}
+                  {renderText('columnNoteBody')}
                 </div>
               </div>
             </div>
@@ -587,17 +571,12 @@ export const NewspaperPageRenderer: React.FC<NewspaperPageRendererProps> = ({
               <div className="flex flex-col justify-between border-r border-[#d4cebe] pr-3">
                 <div>
                   {renderImageSlot('image1', 'h-[180px]')}
-                  <h4 className="font-playfair font-bold text-base mt-2 text-[#151412]">
-                    Dispatch I: Early Studio Masters
-                  </h4>
+                  <div className="mt-2">{renderText('dispatch1Title')}</div>
                   <div className="h-0.5 bg-[#d4cebe] my-1" />
-                  <p className="font-source-serif text-xs text-[#262420] text-justify leading-relaxed">
-                    Recording milestones began with relentless precision and analog tape perfection.
-                    Every layered vocal track was meticulously voiced to create the signature sound.
-                  </p>
+                  {renderText('dispatch1Body')}
                 </div>
-                <div className="border-t border-[#d4cebe] pt-1 mt-2 text-[10px] font-oswald text-[#78716c] uppercase">
-                  RECORD NO. 01 • STUDIO ARCHIVE
+                <div className="border-t border-[#d4cebe] pt-1 mt-2">
+                  {renderText('dispatch1Meta')}
                 </div>
               </div>
 
@@ -605,17 +584,12 @@ export const NewspaperPageRenderer: React.FC<NewspaperPageRendererProps> = ({
               <div className="flex flex-col justify-between border-r border-[#d4cebe] pr-3">
                 <div>
                   {renderImageSlot('image2', 'h-[180px]')}
-                  <h4 className="font-playfair font-bold text-base mt-2 text-[#151412]">
-                    Dispatch II: Stadium Spectacles
-                  </h4>
+                  <div className="mt-2">{renderText('dispatch2Title')}</div>
                   <div className="h-0.5 bg-[#d4cebe] my-1" />
-                  <p className="font-source-serif text-xs text-[#262420] text-justify leading-relaxed">
-                    Live audiences witnessed unprecedented engineering, pyrotechnics, and choreography.
-                    From the 45-degree lean to the anti-gravity illusion, live boundaries were shattered.
-                  </p>
+                  {renderText('dispatch2Body')}
                 </div>
-                <div className="border-t border-[#d4cebe] pt-1 mt-2 text-[10px] font-oswald text-[#78716c] uppercase">
-                  RECORD NO. 02 • WORLD TOUR WIRE
+                <div className="border-t border-[#d4cebe] pt-1 mt-2">
+                  {renderText('dispatch2Meta')}
                 </div>
               </div>
 
@@ -623,17 +597,12 @@ export const NewspaperPageRenderer: React.FC<NewspaperPageRendererProps> = ({
               <div className="flex flex-col justify-between">
                 <div>
                   {renderImageSlot('image3', 'h-[180px]')}
-                  <h4 className="font-playfair font-bold text-base mt-2 text-[#151412]">
-                    Dispatch III: Philanthropy & Vision
-                  </h4>
+                  <div className="mt-2">{renderText('dispatch3Title')}</div>
                   <div className="h-0.5 bg-[#d4cebe] my-1" />
-                  <p className="font-source-serif text-xs text-[#262420] text-justify leading-relaxed">
-                    A global commitment to humanitarian causes that touched countless lives.
-                    Guinness World Records recognized these contributions as the greatest by any pop star.
-                  </p>
+                  {renderText('dispatch3Body')}
                 </div>
-                <div className="border-t border-[#d4cebe] pt-1 mt-2 text-[10px] font-oswald text-[#78716c] uppercase">
-                  RECORD NO. 03 • GLOBAL LEGACY
+                <div className="border-t border-[#d4cebe] pt-1 mt-2">
+                  {renderText('dispatch3Meta')}
                 </div>
               </div>
             </div>
@@ -645,9 +614,7 @@ export const NewspaperPageRenderer: React.FC<NewspaperPageRendererProps> = ({
           <div className="flex-1 flex flex-col gap-3">
             {/* Giant Banner Headline */}
             <div className="border-b-2 border-[#151412] pb-2">
-              <span className="font-oswald text-xs uppercase tracking-widest text-[#78350f] font-bold block mb-0.5">
-                GRAND CHRONICLE SPECIAL BROADCAST
-              </span>
+              {renderText('spreadKicker', { customClass: 'mb-0.5' })}
               <div className="text-3xl lg:text-4xl font-playfair font-black text-[#151412] leading-tight">
                 {renderText('pageHeadline')}
               </div>

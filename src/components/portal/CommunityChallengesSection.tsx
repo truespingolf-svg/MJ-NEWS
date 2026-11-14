@@ -19,6 +19,8 @@ import {
   Eye,
   Clock,
   Award,
+  Trash2,
+  ShieldCheck,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import {
@@ -29,8 +31,11 @@ import {
   submitChallengeEntryFirestore,
   voteForChallengeEntry,
   subscribeVotingConfig,
+  deleteChallengeEntryFirestore,
   UserProfile,
 } from '../../services/firestoreStorage.ts';
+import { getUserPermissions } from '../../utils/permissions.ts';
+import { StaffChallengeManager } from '../authorisation/StaffChallengeManager.tsx';
 
 interface CommunityChallengesSectionProps {
   currentUser: UserProfile | null;
@@ -67,6 +72,12 @@ export const CommunityChallengesSection: React.FC<CommunityChallengesSectionProp
 
   // Real-time voting config state
   const [pointsPerVote, setPointsPerVote] = useState<number>(1000);
+  const [voteToast, setVoteToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [showChallengeMakerModal, setShowChallengeMakerModal] = useState(false);
+  const [confirmDeleteEntryId, setConfirmDeleteEntryId] = useState<string | null>(null);
+  const [isDeletingEntry, setIsDeletingEntry] = useState(false);
+
+  const perms = getUserPermissions(currentUser?.role);
 
   useEffect(() => {
     const unsubConfig = subscribeVotingConfig((config) => {
@@ -224,6 +235,8 @@ export const CommunityChallengesSection: React.FC<CommunityChallengesSectionProp
       const res = await voteForChallengeEntry(entry.id, voterIdentifier);
 
       if (res.success) {
+        setVoteToast({ type: 'success', message: 'Vote recorded! +Points awarded.' });
+        setTimeout(() => setVoteToast(null), 3500);
         try {
           confetti({
             particleCount: 60,
@@ -235,11 +248,33 @@ export const CommunityChallengesSection: React.FC<CommunityChallengesSectionProp
           // ignore
         }
       } else {
-        alert(res.message);
+        setVoteToast({ type: 'error', message: res.message || 'Unable to cast vote right now.' });
+        setTimeout(() => setVoteToast(null), 4000);
       }
     } catch (err: any) {
       console.error('Vote failed:', err);
-      alert('Unable to process your vote right now. Please try again.');
+      setVoteToast({
+        type: 'error',
+        message: 'Unable to process your vote right now. Please try again.',
+      });
+      setTimeout(() => setVoteToast(null), 4000);
+    }
+  };
+
+  const handleDeleteEntry = async (entryId: string) => {
+    if (!perms.canModerateEntries) return;
+    setIsDeletingEntry(true);
+    try {
+      const ok = await deleteChallengeEntryFirestore(entryId);
+      if (ok) {
+        setConfirmDeleteEntryId(null);
+        setVoteToast({ type: 'success', message: 'Challenge entry removed by moderation.' });
+        setTimeout(() => setVoteToast(null), 3500);
+      } else {
+        setVoteToast({ type: 'error', message: 'Could not delete entry. Please retry.' });
+      }
+    } finally {
+      setIsDeletingEntry(false);
     }
   };
 
@@ -255,36 +290,75 @@ export const CommunityChallengesSection: React.FC<CommunityChallengesSectionProp
   return (
     <div className="space-y-10 select-none text-neutral-100 font-sans relative">
       {/* Contest Selector Bar */}
-      <div className="flex items-center gap-3 overflow-x-auto no-scrollbar py-1">
-        <span className="text-xs font-mono uppercase text-neutral-400 font-bold tracking-wider shrink-0">
-          Contest:
-        </span>
-        {challenges.map((ch) => {
-          const isSelected = ch.id === activeChallengeId;
-          return (
-            <button
-              key={ch.id}
-              onClick={() => setActiveChallengeId(ch.id)}
-              className={`px-4 py-2 rounded-2xl text-xs font-mono font-bold tracking-wider transition-all flex items-center gap-2 shrink-0 cursor-pointer ${
-                isSelected
-                  ? 'bg-gradient-to-r from-red-600 via-red-500 to-amber-600 text-white shadow-[0_0_20px_rgba(239,68,68,0.35)] scale-105'
-                  : 'bg-[#12080c] hover:bg-[#1a0e14] text-neutral-300 border border-red-950/80 hover:border-red-500/40'
-              }`}
-            >
-              <span>{ch.title}</span>
-              <span
-                className={`text-[9px] px-2 py-0.5 rounded-full font-bold ${
-                  ch.status === 'active'
-                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                    : 'bg-neutral-800 text-neutral-400'
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-3 overflow-x-auto no-scrollbar py-1 flex-1">
+          <span className="text-xs font-mono uppercase text-neutral-400 font-bold tracking-wider shrink-0">
+            Contest:
+          </span>
+          {challenges.map((ch) => {
+            const isSelected = ch.id === activeChallengeId;
+            return (
+              <button
+                key={ch.id}
+                onClick={() => setActiveChallengeId(ch.id)}
+                className={`px-4 py-2 rounded-2xl text-xs font-mono font-bold tracking-wider transition-all flex items-center gap-2 shrink-0 cursor-pointer ${
+                  isSelected
+                    ? 'bg-gradient-to-r from-red-600 via-red-500 to-amber-600 text-white shadow-[0_0_20px_rgba(239,68,68,0.35)] scale-105'
+                    : 'bg-[#12080c] hover:bg-[#1a0e14] text-neutral-300 border border-red-950/80 hover:border-red-500/40'
                 }`}
               >
-                {ch.status === 'active' ? 'LIVE' : 'CLOSED'}
-              </span>
-            </button>
-          );
-        })}
+                <span>{ch.title}</span>
+                <span
+                  className={`text-[9px] px-2 py-0.5 rounded-full font-bold ${
+                    ch.status === 'active'
+                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                      : 'bg-neutral-800 text-neutral-400'
+                  }`}
+                >
+                  {ch.status === 'active' ? 'LIVE' : 'CLOSED'}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {perms.canManageChallenges && (
+          <button
+            type="button"
+            onClick={() => setShowChallengeMakerModal(true)}
+            className="px-4 py-2 rounded-2xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-mono font-bold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 shadow-sm"
+          >
+            <Trophy className="w-3.5 h-3.5 text-amber-400" />
+            <span>Challenge Maker Studio</span>
+          </button>
+        )}
       </div>
+
+      {voteToast && (
+        <div
+          className={`p-3 rounded-xl text-xs font-medium flex items-center justify-between ${
+            voteToast.type === 'success'
+              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+              : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            {voteToast.type === 'success' ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            ) : (
+              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+            )}
+            <span>{voteToast.message}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setVoteToast(null)}
+            className="text-neutral-400 hover:text-white ml-3"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {activeChallenge ? (
         <div className="space-y-8">
@@ -370,15 +444,15 @@ export const CommunityChallengesSection: React.FC<CommunityChallengesSectionProp
                   </div>
                 ) : (
                   <div className="w-full bg-[#12080c] border border-red-950/80 rounded-2xl p-6 space-y-4 text-center">
-                    <div className="w-12 h-12 rounded-2xl bg-red-600/20 text-red-400 border border-red-500/30 flex items-center justify-center mx-auto">
-                      <Flame className="w-6 h-6 animate-pulse" />
+                    <div className="w-11 h-11 rounded-xl bg-red-600/15 text-red-400 border border-red-500/30 flex items-center justify-center mx-auto">
+                      <Flame className="w-5 h-5" />
                     </div>
                     <div className="space-y-1">
                       <h4 className="font-serif font-bold text-base text-white">
                         Live Community Vote Battle
                       </h4>
                       <p className="text-xs text-neutral-400 leading-relaxed">
-                        Votes can be cast once every 5 hours. Every vote awards you points and propels your favorite entry toward victory!
+                        Cast your vote for standout submissions to award bonus community points and crown the winner.
                       </p>
                     </div>
 
@@ -542,24 +616,57 @@ export const CommunityChallengesSection: React.FC<CommunityChallengesSectionProp
                           </p>
                         </div>
 
-                        {/* Interactive Upvote Button */}
-                        <div className="pt-3 border-t border-red-950/80 flex items-center justify-between">
+                        {/* Interactive Upvote & Moderation Actions */}
+                        <div className="pt-3 border-t border-red-950/80 flex flex-wrap items-center justify-between gap-2">
                           <div className="text-xs font-mono text-neutral-400">
                             <span className="font-bold text-white">{entry.votes || 0}</span> votes
                           </div>
 
-                          <button
-                            onClick={() => handleVote(entry)}
-                            className={`px-4 py-1.5 rounded-xl text-xs font-mono font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-md ${
-                              hasVoted
-                                ? 'bg-red-600/20 text-red-400 border border-red-500/40 cursor-default'
-                                : 'bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white transform hover:scale-105 active:scale-95'
-                            }`}
-                            title={hasVoted ? 'You already voted for this entry' : 'Cast vote (1 vote per 5 hours)'}
-                          >
-                            <Heart className={`w-3.5 h-3.5 ${hasVoted ? 'fill-red-400' : 'fill-white'}`} />
-                            <span>{hasVoted ? 'Voted' : 'Vote +PTS'}</span>
-                          </button>
+                          <div className="flex items-center gap-2">
+                            {perms.canModerateEntries &&
+                              (confirmDeleteEntryId === entry.id ? (
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    disabled={isDeletingEntry}
+                                    onClick={() => handleDeleteEntry(entry.id)}
+                                    className="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-bold cursor-pointer"
+                                  >
+                                    Confirm
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setConfirmDeleteEntryId(null)}
+                                    className="px-2 py-1 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-[11px] cursor-pointer"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmDeleteEntryId(entry.id)}
+                                  className="px-2.5 py-1.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 text-[11px] font-mono font-bold flex items-center gap-1 cursor-pointer"
+                                  title="Remove submission (Moderator / Challenge Maker)"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                  <span>Remove</span>
+                                </button>
+                              ))}
+
+                            <button
+                              onClick={() => handleVote(entry)}
+                              className={`px-4 py-1.5 rounded-xl text-xs font-mono font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-md ${
+                                hasVoted
+                                  ? 'bg-red-600/20 text-red-400 border border-red-500/40 cursor-default'
+                                  : 'bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white transform hover:scale-105 active:scale-95'
+                              }`}
+                              title={hasVoted ? 'You already voted for this entry' : 'Cast vote for this entry'}
+                            >
+                              <Heart className={`w-3.5 h-3.5 ${hasVoted ? 'fill-red-400' : 'fill-white'}`} />
+                              <span>{hasVoted ? 'Voted' : 'Vote +PTS'}</span>
+                            </button>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -766,6 +873,30 @@ export const CommunityChallengesSection: React.FC<CommunityChallengesSectionProp
                 )}
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* CHALLENGE MAKER STUDIO MODAL (For Challenge Maker & Executive Staff) */}
+      {showChallengeMakerModal && perms.canManageChallenges && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
+          <div className="bg-[#0e0e14] border border-amber-500/40 rounded-3xl max-w-5xl w-full max-h-[90vh] flex flex-col overflow-hidden shadow-2xl">
+            <div className="px-6 py-4 border-b border-neutral-800 flex items-center justify-between bg-[#13131b]">
+              <div className="flex items-center gap-2.5">
+                <ShieldCheck className="w-5 h-5 text-amber-400" />
+                <h3 className="font-serif font-bold text-lg text-white">Challenge Maker Studio</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowChallengeMakerModal(false)}
+                className="p-1.5 rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-800 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              <StaffChallengeManager />
+            </div>
           </div>
         </div>
       )}

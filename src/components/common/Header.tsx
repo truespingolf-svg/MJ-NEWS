@@ -4,14 +4,12 @@ import {
   ChevronLeft,
   Printer,
   Download,
-  Eye,
-  EyeOff,
   ZoomIn,
   ZoomOut,
-  Maximize2,
   Check,
   Edit2,
   Sparkles,
+  Send,
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -39,17 +37,13 @@ export const Header: React.FC<HeaderProps> = ({
   onBackToDashboard,
   zoomLevel,
   onSetZoom,
-  previewMode,
-  onTogglePreviewMode,
   onDownloadPdfStraight,
   onPrintClick,
   isExportingPdf = false,
   exportProgressText = '',
   saveStatus,
-  pageCount,
   onOpenPublishModal,
   onOpenFlipbookPreview,
-  onOpenAiModal,
 }) => {
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [tempTitle, setTempTitle] = useState(projectTitle);
@@ -138,8 +132,8 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
 
-      {/* Zone 3: Canvas Controls, Publishing, 3D Flipbook, and Export PDF */}
-      <div className="flex items-center gap-2 overflow-x-auto max-w-full py-1 shrink-0">
+      {/* Zone 3: Canvas Controls, Publishing / Mod, 3D Flipbook, and Export PDF */}
+      <div className="flex flex-wrap items-center gap-2 max-w-full py-1">
         {/* Zoom Controls */}
         <div className="flex items-center gap-1 bg-neutral-900 border border-neutral-800 rounded-lg p-0.5 text-xs text-neutral-300">
           <button
@@ -178,7 +172,7 @@ export const Header: React.FC<HeaderProps> = ({
         {onOpenFlipbookPreview && (
           <button
             onClick={onOpenFlipbookPreview}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg border border-red-500/40 bg-red-950/80 text-red-300 hover:bg-red-900/80 transition-colors shadow-sm whitespace-nowrap min-h-[36px]"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg border border-red-500/40 bg-red-950/80 text-red-300 hover:bg-red-900/80 transition-colors shadow-sm whitespace-nowrap min-h-[36px] cursor-pointer"
             title="Preview Newspaper in 3D Flipbook Mode"
           >
             <Sparkles className="w-3.5 h-3.5 text-red-400" />
@@ -186,15 +180,15 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         )}
 
-        {/* Publish as Current Paper Button */}
+        {/* Publish / Send to Moderation Button */}
         {onOpenPublishModal && (
           <button
             onClick={onOpenPublishModal}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-black rounded-lg bg-gradient-to-r from-red-600 via-rose-600 to-red-700 hover:from-red-500 hover:to-rose-500 text-white shadow-md transition-all font-sans whitespace-nowrap min-h-[36px]"
-            title="Publish this broadsheet to the public portal with broadcast timer"
+            className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-black rounded-lg bg-gradient-to-r from-red-600 via-rose-600 to-red-700 hover:from-red-500 hover:to-rose-500 text-white shadow-md transition-all font-sans whitespace-nowrap min-h-[36px] cursor-pointer"
+            title="Publish live or send broadsheet to Authorisation Centre moderation"
           >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>Publish Current Paper</span>
+            <Send className="w-3.5 h-3.5" />
+            <span>Publish / Send to Mod</span>
           </button>
         )}
 
@@ -202,7 +196,7 @@ export const Header: React.FC<HeaderProps> = ({
         <button
           onClick={onPrintClick}
           aria-label="Print Broadsheet"
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-red-950 bg-[#14080b] text-neutral-300 hover:text-white hover:bg-[#200a10] transition-colors whitespace-nowrap min-h-[36px]"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-red-950 bg-[#14080b] text-neutral-300 hover:text-white hover:bg-[#200a10] transition-colors whitespace-nowrap min-h-[36px] cursor-pointer"
           title="Print / Save as PDF via Browser"
         >
           <Printer className="w-3.5 h-3.5 text-red-400" />
@@ -214,7 +208,7 @@ export const Header: React.FC<HeaderProps> = ({
           onClick={onDownloadPdfStraight}
           disabled={isExportingPdf}
           aria-label="Download PDF"
-          className="flex items-center gap-2 px-4 py-1.5 text-xs font-bold bg-gradient-to-r from-red-600 to-amber-600 hover:from-red-500 hover:to-amber-500 disabled:opacity-75 text-white rounded-lg shadow-md transition-all font-sans whitespace-nowrap min-h-[36px]"
+          className="flex items-center gap-2 px-4 py-1.5 text-xs font-bold bg-gradient-to-r from-red-600 to-amber-600 hover:from-red-500 hover:to-amber-500 disabled:opacity-75 text-white rounded-lg shadow-md transition-all font-sans whitespace-nowrap min-h-[36px] cursor-pointer"
         >
           <Download className="w-3.5 h-3.5 stroke-[2.5]" />
           <span>{isExportingPdf ? (exportProgressText || 'Downloading PDF...') : 'DOWNLOAD PDF'}</span>

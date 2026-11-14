@@ -35,6 +35,7 @@ export const TicketInspector: React.FC<TicketInspectorProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'content' | 'design' | 'security' | 'back'>('content');
   const [isEnhancing, setIsEnhancing] = useState(false);
+  const [uploadError, setUploadError] = useState<string>('');
   const logoInputRef = useRef<HTMLInputElement>(null);
   const bgImageInputRef = useRef<HTMLInputElement>(null);
   const customQrInputRef = useRef<HTMLInputElement>(null);
@@ -56,9 +57,10 @@ export const TicketInspector: React.FC<TicketInspectorProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
+    setUploadError('');
     const MAX_25MB = 25 * 1024 * 1024;
     if (file.size > MAX_25MB) {
-      alert('File size exceeds 25MB limit. Please select a file under 25MB.');
+      setUploadError('File size exceeds 25MB limit. Please select a file under 25MB.');
       e.target.value = '';
       return;
     }
@@ -161,6 +163,14 @@ export const TicketInspector: React.FC<TicketInspectorProps> = ({
 
       {/* Main Tab Panels */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {uploadError && (
+          <div className="p-2.5 rounded-lg bg-rose-500/15 border border-rose-500/30 text-[11px] text-rose-300 flex items-center justify-between">
+            <span>{uploadError}</span>
+            <button type="button" onClick={() => setUploadError('')} className="ml-2 text-rose-200 hover:text-white">
+              ✕
+            </button>
+          </div>
+        )}
         {/* ================= TAB 1: DETAILS ================= */}
         {activeTab === 'content' && (
           <div className="space-y-3.5">

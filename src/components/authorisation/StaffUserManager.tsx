@@ -13,7 +13,9 @@ import {
   setHomeLockConfigInFirestore,
   clearHomeLockConfigInFirestore,
   deleteUserAccountInFirestore,
+  updateUserRoleFirestore,
 } from '../../services/firestoreStorage.ts';
+import { getUserPermissions } from '../../utils/permissions.ts';
 import {
   Users,
   Search,
@@ -350,6 +352,25 @@ export const StaffUserManager: React.FC = () => {
     }
   };
 
+  const handleRoleChange = async (user: UserProfile, newRole: string) => {
+    setIsSubmitting(true);
+    try {
+      const ok = await updateUserRoleFirestore(user.uid, newRole);
+      if (ok) {
+        setStatusMsg({
+          type: 'success',
+          text: `Updated @${user.discordUser || user.displayName || 'User'}'s role to "${newRole}". Permissions apply immediately.`,
+        });
+      } else {
+        setStatusMsg({ type: 'error', text: 'Failed to update user role in Firestore.' });
+      }
+    } catch {
+      setStatusMsg({ type: 'error', text: 'Error updating user role.' });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
     <div className="space-y-6 font-sans text-neutral-100 p-6">
       {/* Top Banner */}
@@ -645,6 +666,46 @@ export const StaffUserManager: React.FC = () => {
                   <KeyRound className="w-3.5 h-3.5 text-emerald-400" />
                   <span>{user.assignedCodes?.length || 0} Direct Codes</span>
                 </span>
+              </div>
+
+              {/* Staff Role Assignment Dropdown */}
+              <div className="pt-2 border-t border-[#222232] flex items-center justify-between gap-2">
+                <label className="text-[10px] font-mono uppercase text-neutral-400 shrink-0">
+                  Role:
+                </label>
+                <select
+                  value={
+                    !user.role || ['App Moderator', 'APP MODERATOR', 'MODERATOR'].includes(user.role)
+                      ? 'Member'
+                      : user.role
+                  }
+                  onChange={(e) => handleRoleChange(user, e.target.value)}
+                  disabled={isSubmitting}
+                  aria-label={`Staff role for ${user.displayName || user.discordUser || 'user'}`}
+                  className="flex-1 bg-neutral-950 border border-[#2e2e3d] focus:border-amber-400 rounded-lg px-2 py-1 text-[11px] font-mono text-amber-300 focus:outline-none cursor-pointer"
+                >
+                  <option value="Member">Member (Standard)</option>
+                  <option value="Newspaper Specialist">Newspaper Specialist</option>
+                  <option value="Challenge Maker">Challenge Maker</option>
+                  <option value="Marketing Executive">Marketing Executive</option>
+                  <option value="Administrator">Administrator</option>
+                  <option value="Owner">Owner</option>
+                  {user.role &&
+                    ![
+                      'Member',
+                      'MEMBER',
+                      'App Moderator',
+                      'APP MODERATOR',
+                      'MODERATOR',
+                      'Newspaper Specialist',
+                      'Challenge Maker',
+                      'Marketing Executive',
+                      'Administrator',
+                      'Owner',
+                    ].includes(user.role) && (
+                      <option value={user.role}>{getUserPermissions(user.role).badgeLabel}</option>
+                    )}
+                </select>
               </div>
 
               {/* Action Buttons */}

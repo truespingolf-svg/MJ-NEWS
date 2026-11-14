@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Lock, AlertCircle, ArrowRight, ShieldCheck, Radio, Cpu } from 'lucide-react';
+import { Lock, AlertCircle, ShieldCheck, Radio, Cpu, Loader2 } from 'lucide-react';
 import { subscribePasscodeSettings } from '../../services/firestoreStorage.ts';
+import { verifyStaffPasscode } from '../../utils/passcodeAuth.ts';
 
 interface StaffPasscodeModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onUnlock?: (isTrial?: boolean) => void;
-  onSuccess?: (isTrial?: boolean) => void;
+  onUnlock?: () => void;
+  onSuccess?: () => void;
 }
 
 export const StaffPasscodeModal: React.FC<StaffPasscodeModalProps> = ({
@@ -18,52 +19,57 @@ export const StaffPasscodeModal: React.FC<StaffPasscodeModalProps> = ({
   const [passcode, setPasscode] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [shake, setShake] = useState(false);
-  const [fullCode, setFullCode] = useState('2526');
-  const [trialCode, setTrialCode] = useState('2520');
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [passcodeHash, setPasscodeHash] = useState<string | null>(null);
 
   useEffect(() => {
     const unsub = subscribePasscodeSettings((settings) => {
-      if (settings) {
-        setFullCode(settings.fullPasscode || '2526');
-        setTrialCode(settings.trialPasscode || '2520');
-      }
+      setPasscodeHash(settings?.passcodeHash || null);
     });
     return () => unsub();
   }, []);
 
   if (!isOpen) return null;
 
-  const triggerSuccess = (isTrial: boolean) => {
-    if (onSuccess) onSuccess(isTrial);
-    if (onUnlock) onUnlock(isTrial);
+  const triggerSuccess = () => {
+    if (onSuccess) onSuccess();
+    if (onUnlock) onUnlock();
   };
 
-  const validateCode = (codeToTest: string) => {
+  const validateCode = async (codeToTest: string) => {
     const clean = codeToTest.trim();
-    if (clean === fullCode && clean !== '') {
-      setErrorMsg('');
-      triggerSuccess(false);
-      setPasscode('');
-    } else {
-      setErrorMsg('Access Denied. Invalid Passcode.');
-      setShake(true);
-      setTimeout(() => setShake(false), 500);
-      setPasscode('');
+    if (!clean || isVerifying) return;
+    setIsVerifying(true);
+    try {
+      const valid = await verifyStaffPasscode(clean, passcodeHash);
+      if (valid) {
+        setErrorMsg('');
+        setPasscode('');
+        triggerSuccess();
+      } else {
+        setErrorMsg('Access Denied. Invalid Passcode.');
+        setShake(true);
+        setTimeout(() => setShake(false), 500);
+        setPasscode('');
+      }
+    } finally {
+      setIsVerifying(false);
     }
   };
 
   const handleSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!passcode) return;
-    validateCode(passcode);
+    if (!passcode || isVerifying) return;
+    void validateCode(passcode);
   };
 
   const handleKeypadPress = (digit: string) => {
+    if (isVerifying) return;
     if (passcode.length < 6) {
       const next = passcode + digit;
       setPasscode(next);
       if (next.length === 4) {
-        validateCode(next);
+        void validateCode(next);
       }
     }
   };
@@ -91,7 +97,11 @@ export const StaffPasscodeModal: React.FC<StaffPasscodeModalProps> = ({
           <div className="relative">
             <div className="absolute -inset-2 bg-gradient-to-r from-amber-500/30 via-yellow-400/40 to-amber-600/30 rounded-3xl blur-md animate-pulse-glow" />
             <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#1b1b26] to-[#101018] border border-amber-500/50 flex items-center justify-center text-amber-400 shadow-xl relative">
-              <Lock className="w-8 h-8 stroke-[2.2] drop-shadow-[0_0_8px_rgba(251,191,36,0.6)]" />
+              {isVerifying ? (
+                <Loader2 className="w-8 h-8 animate-spin text-amber-400" />
+              ) : (
+                <Lock className="w-8 h-8 stroke-[2.2] drop-shadow-[0_0_8px_rgba(251,191,36,0.6)]" />
+              )}
               <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-amber-400 text-black flex items-center justify-center text-[10px] font-bold shadow-md">
                 <ShieldCheck className="w-3 h-3 stroke-[2.5]" />
               </div>
@@ -107,7 +117,7 @@ export const StaffPasscodeModal: React.FC<StaffPasscodeModalProps> = ({
               Staff Studio Access
             </h2>
             <p className="text-xs text-neutral-400 font-sans mt-1.5 max-w-xs mx-auto leading-relaxed">
-              Enter your 4-digit staff passcode to unlock executive editing privileges or trial inspection mode.
+              Enter your 4-digit staff passcode to unlock executive Newspaper Studio editing and publishing.
             </p>
           </div>
         </div>
@@ -134,11 +144,12 @@ export const StaffPasscodeModal: React.FC<StaffPasscodeModalProps> = ({
             type="password"
             maxLength={8}
             value={passcode}
+            disabled={isVerifying}
             onChange={(e) => {
               const val = e.target.value.slice(0, 8);
               setPasscode(val);
               if (val.length === 4) {
-                validateCode(val);
+                void validateCode(val);
               }
             }}
             onKeyDown={(e) => {
@@ -147,7 +158,7 @@ export const StaffPasscodeModal: React.FC<StaffPasscodeModalProps> = ({
               }
             }}
             placeholder="Enter 4-digit passcode"
-            className="w-full text-center bg-[#151520] border border-[#2a2a3c] rounded-xl py-3 px-4 text-base font-mono tracking-[0.3em] text-amber-300 focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400/50 shadow-inner placeholder:tracking-normal placeholder:text-neutral-600 placeholder:text-xs"
+            className="w-full text-center bg-[#151520] border border-[#2a2a3c] rounded-xl py-3 px-4 text-base font-mono tracking-[0.3em] text-amber-300 focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400/50 shadow-inner placeholder:tracking-normal placeholder:text-neutral-600 placeholder:text-xs disabled:opacity-60"
             autoFocus
           />
 
@@ -164,14 +175,16 @@ export const StaffPasscodeModal: React.FC<StaffPasscodeModalProps> = ({
               <button
                 key={digit}
                 type="button"
+                disabled={isVerifying}
                 onClick={() => handleKeypadPress(digit)}
-                className="py-3.5 bg-gradient-to-b from-[#1c1c28] to-[#14141e] hover:from-[#252536] hover:to-[#1a1a28] active:scale-95 rounded-2xl font-mono text-lg font-bold text-neutral-100 border border-[#2d2d40] shadow-md hover:border-amber-500/40 hover:text-amber-300 transition-all"
+                className="py-3.5 bg-gradient-to-b from-[#1c1c28] to-[#14141e] hover:from-[#252536] hover:to-[#1a1a28] active:scale-95 rounded-2xl font-mono text-lg font-bold text-neutral-100 border border-[#2d2d40] shadow-md hover:border-amber-500/40 hover:text-amber-300 transition-all disabled:opacity-50"
               >
                 {digit}
               </button>
             ))}
             <button
               type="button"
+              disabled={isVerifying}
               onClick={handleClear}
               className="py-3.5 bg-neutral-900/80 hover:bg-neutral-800 text-neutral-400 hover:text-neutral-200 rounded-2xl text-xs font-semibold uppercase tracking-wider border border-neutral-800 transition-colors"
             >
@@ -179,8 +192,9 @@ export const StaffPasscodeModal: React.FC<StaffPasscodeModalProps> = ({
             </button>
             <button
               type="button"
+              disabled={isVerifying}
               onClick={() => handleKeypadPress('0')}
-              className="py-3.5 bg-gradient-to-b from-[#1c1c28] to-[#14141e] hover:from-[#252536] hover:to-[#1a1a28] active:scale-95 rounded-2xl font-mono text-lg font-bold text-neutral-100 border border-[#2d2d40] shadow-md hover:border-amber-500/40 hover:text-amber-300 transition-all"
+              className="py-3.5 bg-gradient-to-b from-[#1c1c28] to-[#14141e] hover:from-[#252536] hover:to-[#1a1a28] active:scale-95 rounded-2xl font-mono text-lg font-bold text-neutral-100 border border-[#2d2d40] shadow-md hover:border-amber-500/40 hover:text-amber-300 transition-all disabled:opacity-50"
             >
               0
             </button>
@@ -197,7 +211,7 @@ export const StaffPasscodeModal: React.FC<StaffPasscodeModalProps> = ({
         <div className="mt-7 pt-4 border-t border-[#1f1f2e] flex items-center justify-between text-[10px] text-neutral-500 font-mono">
           <span className="flex items-center gap-1">
             <Cpu className="w-3 h-3 text-amber-500/70" />
-            <span>256-BIT ENCRYPTED</span>
+            <span>SHA-256 VERIFIED</span>
           </span>
           <span>STAFF ACCESS</span>
         </div>
@@ -205,4 +219,3 @@ export const StaffPasscodeModal: React.FC<StaffPasscodeModalProps> = ({
     </div>
   );
 };
-

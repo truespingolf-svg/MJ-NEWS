@@ -10,41 +10,33 @@ import {
   AlertCircle,
   ArrowRight,
   ShieldCheck,
-  Briefcase,
-  Send,
-  Users,
-  Award,
-  Globe,
-  Star,
   Bell,
   Play,
-  Pause,
   Disc,
-  Radio,
-  Music,
-  Flame,
-  Film,
   LogIn,
-  LogOut,
-  User as UserIcon,
   Volume2,
   VolumeX,
+  Download,
+  Calendar,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { PublicMarqueeBanner } from '../common/PublicMarqueeBanner';
 import { FlipbookReader } from '../canvas/FlipbookReader';
+import { NewspaperPageRenderer } from '../canvas/NewspaperPageRenderer.tsx';
 import { NewspaperProject } from '../../types/newspaper.ts';
 import { getLocalMedia } from '../../services/localMediaRegistry.ts';
+import { downloadProjectPdf } from '../../services/pdfExport.ts';
+import { ensurePageEditableSlots } from '../../utils/newspaperLogic.ts';
+import { getUserPermissions } from '../../utils/permissions.ts';
 
 import { onAuthStateChanged } from 'firebase/auth';
-import { auth, loginWithGoogle, logoutUser } from '../../firebase.ts';
+import { auth, logoutUser } from '../../firebase.ts';
 import {
   subscribePublishedNewspaper,
   subscribeAnnouncements,
   subscribePromoCodes,
   subscribeAllPublishedNewspapers,
   redeemCodeFirestore,
-  submitApplicationFirestore,
   UserProfile,
   subscribeCurrentUser,
   subscribeUsers,
@@ -63,13 +55,11 @@ import { NewspaperReactionBar } from './NewspaperReactionBar.tsx';
 import { CommunityChallengesSection } from './CommunityChallengesSection.tsx';
 import { AuthSignInModal } from './AuthSignInModal.tsx';
 
-// New Cinematic Redesign Modules
 import { ThrillerCinematicIntro } from '../common/ThrillerCinematicIntro.tsx';
 import { UpcomingEventCountdown } from '../home/UpcomingEventCountdown.tsx';
 import { NewsPlatformSection } from '../news/NewsPlatformSection.tsx';
 import { StreamingPlatformSection } from '../streaming/StreamingPlatformSection.tsx';
 import { AtmosphericMovingBackground } from '../common/AtmosphericMovingBackground.tsx';
-import { CommunityLiveChat } from '../home/CommunityLiveChat.tsx';
 
 interface Announcement {
   id: string;
@@ -79,24 +69,27 @@ interface Announcement {
 
 interface MjjRecordsPortalProps {
   onOpenStaffPortal: () => void;
+  onOpenNewspaperStudio?: () => void;
   textureEnabled: boolean;
   onToggleTexture: () => void;
 }
 
 export type PortalNavTab = 'HOME' | 'NEWS' | 'CHALLENGES' | 'STREAMING' | 'NEWSPAPER';
+export type HomeSubTab = 'stage' | 'challenges' | 'leaderboard' | 'news';
 
 export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
   onOpenStaffPortal,
+  onOpenNewspaperStudio,
   textureEnabled,
   onToggleTexture,
 }) => {
-  // Navigation active tab
   const [activeNavTab, setActiveNavTab] = useState<PortalNavTab>('HOME');
+  const [homeSubTab, setHomeSubTab] = useState<HomeSubTab>('stage');
 
-  // Thriller Cinematic Loading Sequence (Always play on fresh load)
+  // Thriller Cinematic Loading Sequence (Always preserved intact)
   const [showCinematicIntro, setShowCinematicIntro] = useState<boolean>(true);
 
-  // Site Entrance Background Music Player state
+  // Site Entrance Background Music Player state (Always preserved intact)
   const [siteAudioSettings, setSiteAudioSettings] = useState<SiteAudioSettings>({
     entrySongUrl: '/assets/aistudio/13.Billie_Jean_a1324698.mp3',
     entrySongTitle: 'Billie Jean (Official Master)',
@@ -109,7 +102,6 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
   const bgAudioRef = useRef<HTMLAudioElement | null>(null);
   const mainContainerRef = useRef<HTMLDivElement | null>(null);
 
-  // Force scroll to top whenever changing tabs or dismissing intro
   useEffect(() => {
     if (mainContainerRef.current) {
       mainContainerRef.current.scrollTop = 0;
@@ -138,7 +130,6 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
   const [archives, setArchives] = useState<any[]>([]);
   const [newsArticles, setNewsArticles] = useState<NewsArticle[]>([]);
   const [streamingTracks, setStreamingTracks] = useState<StreamingTrack[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
 
   // Authenticated Community User & Leaderboard state
   const [currentUserProfile, setCurrentUserProfile] = useState<UserProfile | null>(null);
@@ -146,13 +137,13 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
   const [showProfileModal, setShowProfileModal] = useState<boolean>(false);
   const [profileModalTab, setProfileModalTab] = useState<'profile' | 'notifications'>('profile');
   const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
-  const [isSigningIn, setIsSigningIn] = useState<boolean>(false);
 
-  // Active reading modal
+  // Active reading modal & portal direct PDF export
   const [activeReadingDoc, setActiveReadingDoc] = useState<NewspaperProject | null>(null);
-
-  // Home Featured Music Audio Player state
-  const [isPlayingFeatured, setIsPlayingFeatured] = useState<boolean>(false);
+  const [pdfExportTarget, setPdfExportTarget] = useState<NewspaperProject | null>(null);
+  const [isExportingPortalPdf, setIsExportingPortalPdf] = useState<boolean>(false);
+  const [portalPdfStatus, setPortalPdfStatus] = useState<string>('');
+  const portalPdfContainerRef = useRef<HTMLDivElement | null>(null);
 
   // Countdown timer state for published newspaper
   const [timeLeft, setTimeLeft] = useState<{ hours: number; minutes: number; seconds: number } | null>(null);
@@ -167,22 +158,8 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
   });
   const [isSubmittingCode, setIsSubmittingCode] = useState<boolean>(false);
 
-  // Staff Contractor Application modal state
-  const [showAppModal, setShowAppModal] = useState<boolean>(false);
-  const [appFullName, setAppFullName] = useState<string>('');
-  const [appDiscord, setAppDiscord] = useState<string>('');
-  const [appRole, setAppRole] = useState<string>('App Moderator');
-  const [appReason, setAppReason] = useState<string>('');
-  const [appStatus, setAppStatus] = useState<{ type: 'success' | 'error' | null; message: string }>({
-    type: null,
-    message: '',
-  });
-  const [isSubmittingApp, setIsSubmittingApp] = useState<boolean>(false);
-
-  // Promo codes from real-time database
   const [promoCodes, setPromoCodes] = useState<any[]>([]);
 
-  // Helper to format any doc into NewspaperProject preserving correct ID
   const formatAsNewspaperProject = (raw: any): NewspaperProject => {
     if (!raw) return null as any;
     return {
@@ -203,14 +180,13 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
   // Real-time Firestore sync subscriptions
   useEffect(() => {
     const unsubPub = subscribePublishedNewspaper((pub) => {
-      if (pub && isChronicleDoc(pub)) {
-        setPublishedDoc(null);
-        setExpiresAt(null);
-      } else {
+      if (pub && pub.isActive && !isChronicleDoc(pub)) {
         setPublishedDoc(pub);
         setExpiresAt(pub?.expiresAt || null);
+      } else {
+        setPublishedDoc(null);
+        setExpiresAt(null);
       }
-      setLoading(false);
     });
 
     const unsubAnn = subscribeAnnouncements((anns) => {
@@ -268,7 +244,6 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
           }
         });
       } else {
-        // Check if player previously signed in with username/password on this device
         const savedPlayerUid = localStorage.getItem('mjj_active_player_uid');
         if (savedPlayerUid) {
           unsubUserDoc = subscribeCurrentUser(savedPlayerUid, (p) => {
@@ -307,7 +282,6 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
     };
   }, []);
 
-  // Timer countdown hook for live newspaper
   useEffect(() => {
     if (!expiresAt) {
       setTimeLeft(null);
@@ -316,7 +290,7 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
 
     const updateTimer = () => {
       const target = new Date(expiresAt).getTime();
-      const now = new Date().getTime();
+      const now = Date.now();
       const diff = target - now;
 
       if (diff <= 0) {
@@ -341,7 +315,6 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
         .play()
         .then(() => setIsBgAudioPlaying(true))
         .catch(() => {
-          // Autoplay may need user gesture
           setIsBgAudioPlaying(false);
         });
     }
@@ -361,7 +334,6 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
     }
   };
 
-  // Cross-audio synchronization: stop background music when vault audio plays
   useEffect(() => {
     const handleStopBg = () => {
       if (bgAudioRef.current) {
@@ -372,13 +344,6 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
     window.addEventListener('mjj_stop_bg_audio', handleStopBg);
     return () => window.removeEventListener('mjj_stop_bg_audio', handleStopBg);
   }, []);
-
-  const toggleBgAudioMute = () => {
-    if (!bgAudioRef.current) return;
-    const nextMuted = !isBgAudioMuted;
-    bgAudioRef.current.muted = nextMuted;
-    setIsBgAudioMuted(nextMuted);
-  };
 
   const handleLogout = async () => {
     try {
@@ -398,7 +363,6 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
     } catch {
       // ignore
     }
-    // Do NOT reset currentTime — keep audio playing continuously without restarting!
     if (bgAudioRef.current && siteAudioSettings.autoplayEnabled) {
       if (bgAudioRef.current.paused) {
         bgAudioRef.current
@@ -411,7 +375,6 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
     }
   };
 
-  // Unified Code redemption submit
   const handleRedeemCode = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanCode = redeemCode.trim();
@@ -430,7 +393,7 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
     if (!cleanDiscord && !currentUserProfile) {
       setRedeemStatus({
         type: 'error',
-        message: 'Please enter your Discord username or sign in with Google first.',
+        message: 'Please enter your Discord username or sign in first.',
       });
       return;
     }
@@ -459,9 +422,7 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
 
         setRedeemStatus({
           type: 'success',
-          message: `🎉 Reward Claimed! You received +${(
-            pointsRes.pointsAwarded || 0
-          ).toLocaleString()} community points!`,
+          message: `Reward Claimed! You received +${(pointsRes.pointsAwarded || 0).toLocaleString()} community points.`,
         });
         setRedeemCode('');
         return;
@@ -472,10 +433,7 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
         !pointsRes.error.toLowerCase().includes('not found') &&
         !pointsRes.error.toLowerCase().includes('invalid')
       ) {
-        setRedeemStatus({
-          type: 'error',
-          message: pointsRes.error,
-        });
+        setRedeemStatus({ type: 'error', message: pointsRes.error });
         return;
       }
 
@@ -493,7 +451,7 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
             particleCount: 120,
             spread: 80,
             origin: { y: 0.6 },
-            colors: ['#EAB308', '#D97706', '#F59E0B', '#FFFFFF', '#6366F1'],
+            colors: ['#EAB308', '#D97706', '#F59E0B', '#FFFFFF'],
           });
         } catch {
           // ignore
@@ -501,9 +459,7 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
 
         setRedeemStatus({
           type: 'success',
-          message:
-            secretRes.message ||
-            'Secret broadsheet code successfully redeemed! Your reward has been recorded!',
+          message: secretRes.message || 'Secret broadsheet code redeemed! Your reward has been recorded.',
         });
         setRedeemCode('');
       } else {
@@ -523,90 +479,73 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
     }
   };
 
-  const handleApplicationSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!appDiscord.trim() || !appReason.trim()) {
-      setAppStatus({
-        type: 'error',
-        message: 'Please enter your Discord username and reason for applying.',
-      });
-      return;
-    }
-
-    setIsSubmittingApp(true);
-    setAppStatus({ type: null, message: '' });
-
-    try {
-      const combinedReason = `[Requested Role: ${appRole}] ${appReason.trim()}`;
-      const ok = await submitApplicationFirestore({
-        discordUser: appDiscord.trim(),
-        fullName: appFullName.trim() || 'Anonymous Applicant',
-        reason: combinedReason,
-      });
-
-      fetch('/api/public/submit-application', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          discordUser: appDiscord.trim(),
-          fullName: appFullName.trim() || 'Anonymous Applicant',
-          reason: combinedReason,
-        }),
-      }).catch(() => {});
-
-      if (ok) {
-        try {
-          confetti({
-            particleCount: 100,
-            spread: 70,
-            origin: { y: 0.6 },
-            colors: ['#10B981', '#34D399', '#F59E0B', '#FFFFFF'],
-          });
-        } catch {
-          // ignore
-        }
-
-        setAppStatus({
-          type: 'success',
-          message:
-            'Your application has been submitted successfully to the MJJ Records Staff Authorisation Centre!',
-        });
-        setAppDiscord('');
-        setAppFullName('');
-        setAppReason('');
-      } else {
-        setAppStatus({
-          type: 'error',
-          message: 'Failed to submit application. Please check connection.',
-        });
+  const extractLeadHeadline = (doc: any, fallback: string): string => {
+    const firstPage = doc?.pages?.[0];
+    if (firstPage?.texts) {
+      const t = firstPage.texts;
+      const candidate =
+        t.mainHeadline?.content ||
+        t.leadHeadline?.content ||
+        t.leadArticleHeadline?.content ||
+        t.masthead?.content;
+      if (candidate && String(candidate).trim()) {
+        return String(candidate).trim();
       }
-    } catch (err) {
-      console.error('Application submit error:', err);
-      setAppStatus({
-        type: 'error',
-        message: 'Error submitting application. Please try again.',
-      });
-    } finally {
-      setIsSubmittingApp(false);
     }
+    if (firstPage?.articles?.[0]?.title) {
+      return String(firstPage.articles[0].title);
+    }
+    return fallback;
   };
 
+  const handleDownloadPortalPdf = async (rawDoc: any) => {
+    if (!rawDoc || isExportingPortalPdf) return;
+    const formatted = formatAsNewspaperProject(rawDoc);
+    const normalized: NewspaperProject = {
+      ...formatted,
+      pages: (formatted.pages || []).map((p, idx) =>
+        ensurePageEditableSlots({ ...p, pageNumber: p.pageNumber || idx + 1 }, p.layoutId)
+      ),
+    };
+    setPdfExportTarget(normalized);
+    setIsExportingPortalPdf(true);
+    setPortalPdfStatus('Preparing PDF pages...');
+    setTimeout(async () => {
+      try {
+        const ok = await downloadProjectPdf(
+          normalized,
+          portalPdfContainerRef.current,
+          (status) => setPortalPdfStatus(status)
+        );
+        if (!ok) {
+          setPortalPdfStatus('Could not generate PDF. Try opening the 3D Flipbook Reader.');
+        }
+      } finally {
+        setIsExportingPortalPdf(false);
+        setTimeout(() => setPortalPdfStatus(''), 4000);
+      }
+    }, 320);
+  };
+
+  const userPerms = getUserPermissions(currentUserProfile?.role);
   const featuredTrack = streamingTracks[0];
 
   return (
-    <div ref={mainContainerRef} className="flex-1 w-full overflow-y-auto bg-[#07070a] text-neutral-100 font-sans selection:bg-red-600 selection:text-white relative">
-      {/* Global Atmospheric Moving Background (Flying Bats, Eerie Mist, Blood Embers) */}
+    <div
+      ref={mainContainerRef}
+      className="flex-1 w-full overflow-y-auto bg-[#07070a] text-neutral-100 font-sans selection:bg-red-600 selection:text-white relative"
+    >
       <AtmosphericMovingBackground />
 
-      {/* Thriller Cinematic Loading Sequence (Skippable / Replayable) */}
+      {/* Preserved Thriller Loading Screen */}
       {showCinematicIntro && (
         <ThrillerCinematicIntro onComplete={handleDismissIntro} sharedAudioRef={bgAudioRef} />
       )}
 
-      {/* Top Scrolling Marquee Announcement Banner */}
+      {/* Clean Top Wire Banner */}
       <PublicMarqueeBanner announcements={announcements} />
 
-      {/* Hidden background audio element for site entrance music */}
+      {/* Preserved Entrance Music Player */}
       <audio
         ref={bgAudioRef}
         src={resolvedAudioUrl || siteAudioSettings.entrySongUrl}
@@ -621,34 +560,24 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
           const el = e.currentTarget;
           setBgAudioTime({ current: el.currentTime || 0, duration: el.duration || 294 });
         }}
-        onEnded={() => {
-          setIsBgAudioPlaying(false);
-        }}
+        onEnded={() => setIsBgAudioPlaying(false)}
       />
 
-      {/* Main Top Navigation Header */}
-      <header className="border-b border-[#231215] bg-[#0c080a]/95 backdrop-blur-xl sticky top-0 z-30 shadow-2xl">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex flex-wrap items-center justify-between gap-4">
-          {/* Brand Logo & Wordmark (Distinctive typography, NO box icon) */}
-          <div
+      {/* Clean 3-Zone Top Navigation Header */}
+      <header className="border-b border-neutral-800/80 bg-[#09090c]/95 backdrop-blur-xl sticky top-0 z-30">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
+          {/* Zone 1: Clean Single-Line Wordmark */}
+          <button
+            type="button"
             onClick={() => setActiveNavTab('HOME')}
-            className="flex flex-col cursor-pointer group select-none py-1"
+            className="text-left cursor-pointer group shrink-0"
           >
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl sm:text-2xl font-serif tracking-[0.2em] font-black text-transparent bg-clip-text bg-gradient-to-r from-neutral-100 via-neutral-200 to-neutral-400 group-hover:from-red-400 group-hover:via-amber-300 group-hover:to-red-500 transition-all duration-300 uppercase drop-shadow-[0_2px_10px_rgba(239,68,68,0.35)]">
-                MJJ RECORDS
-              </h1>
-              <span className="text-[9px] font-mono font-black bg-red-950/80 text-red-400 border border-red-500/50 px-2 py-0.5 rounded shadow-sm tracking-widest">
-                OFFICIAL
-              </span>
-            </div>
-            <div className="flex items-center gap-2 text-[10px] text-neutral-400 font-mono tracking-widest uppercase">
-              <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
-              <span>Entertainment &amp; Press Platform</span>
-            </div>
-          </div>
+            <span className="text-lg sm:text-xl font-serif tracking-[0.2em] font-black text-white group-hover:text-red-400 transition-colors uppercase whitespace-nowrap">
+              MJJ RECORDS
+            </span>
+          </button>
 
-          {/* Primary Navigation Tabs */}
+          {/* Zone 2: 5 Single-Line Navigation Links */}
           <nav className="flex items-center gap-1 sm:gap-2 overflow-x-auto no-scrollbar py-1">
             {(
               [
@@ -664,81 +593,61 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
                 <button
                   key={tab.id}
                   onClick={() => setActiveNavTab(tab.id)}
-                  className={`px-3.5 py-1.5 rounded-xl text-xs font-mono font-bold uppercase tracking-wider transition-all cursor-pointer relative shrink-0 ${
+                  className={`px-3 py-2 rounded-lg text-xs font-mono font-bold uppercase tracking-wider transition-all cursor-pointer relative shrink-0 whitespace-nowrap ${
                     isActive
-                      ? 'text-white bg-gradient-to-r from-red-950 via-[#360912] to-red-950 border border-red-500/60 shadow-[0_0_15px_rgba(239,68,68,0.25)]'
-                      : 'text-neutral-400 hover:text-white hover:bg-neutral-900/60 border border-transparent'
+                      ? 'text-white bg-neutral-900 border border-red-500/40'
+                      : 'text-neutral-400 hover:text-white hover:bg-neutral-900/50 border border-transparent'
                   }`}
                 >
                   <span>{tab.label}</span>
                   {isActive && (
-                    <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-4 h-0.5 bg-red-500 rounded-full" />
+                    <span className="absolute bottom-0 left-3 right-3 h-0.5 bg-red-500 rounded-full" />
                   )}
                 </button>
               );
             })}
           </nav>
 
-          {/* Right Action Icons & Auth Controls */}
-          <div className="flex flex-wrap items-center gap-2 sm:gap-2.5">
-            {/* Site Entrance Music Toggle */}
+          {/* Zone 3: Compact Action Controls */}
+          <div className="flex items-center gap-2 shrink-0">
+            {/* Entrance Music Toggle */}
             <button
               onClick={toggleBgAudio}
-              className={`px-3 py-1.5 text-xs font-mono font-bold rounded-xl border transition-all flex items-center gap-2 shrink-0 cursor-pointer ${
+              className={`px-2.5 py-1.5 text-xs font-mono font-semibold rounded-lg border transition-all flex items-center gap-1.5 shrink-0 cursor-pointer tabular-nums ${
                 isBgAudioPlaying
-                  ? 'bg-red-950/80 border-red-500/70 text-red-300 shadow-[0_0_15px_rgba(239,68,68,0.35)]'
-                  : 'bg-neutral-900/90 border-neutral-800 text-neutral-400 hover:text-neutral-200'
+                  ? 'bg-red-950/60 border-red-500/50 text-red-200'
+                  : 'bg-neutral-900 border-neutral-800 text-neutral-400 hover:text-white'
               }`}
               title={isBgAudioPlaying ? 'Pause Entrance Music' : 'Play Entrance Music'}
             >
               {isBgAudioPlaying ? (
                 <>
-                  <Volume2 className="w-3.5 h-3.5 text-red-400 animate-pulse shrink-0" />
-                  <div className="flex items-end gap-0.5 h-3 shrink-0">
-                    <span className="w-0.5 bg-red-400 animate-[bounce_0.6s_ease-in-out_infinite] h-2" />
-                    <span className="w-0.5 bg-red-400 animate-[bounce_0.8s_ease-in-out_infinite] h-3" />
-                    <span className="w-0.5 bg-red-400 animate-[bounce_0.5s_ease-in-out_infinite] h-1.5" />
-                  </div>
-                  <span className="text-[11px] font-mono text-red-200">
+                  <Volume2 className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                  <span className="hidden md:inline text-[11px]">
                     {formatAudioTime(bgAudioTime.current)} / {formatAudioTime(bgAudioTime.duration)}
                   </span>
                 </>
               ) : (
                 <>
                   <VolumeX className="w-3.5 h-3.5 text-neutral-500 shrink-0" />
-                  <span className="text-[11px] font-mono text-neutral-400">
-                    Play Music ({formatAudioTime(bgAudioTime.current)})
-                  </span>
+                  <span className="hidden md:inline text-[11px]">Music</span>
                 </>
               )}
             </button>
 
-            {/* Apply for Staff Contractor (Prominent Call to Action) */}
-            <button
-              onClick={() => {
-                setShowAppModal(true);
-                setAppStatus({ type: null, message: '' });
-              }}
-              className="px-3.5 py-1.5 text-xs font-bold rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-500 hover:to-teal-500 text-white shadow-[0_0_18px_rgba(16,185,129,0.35)] hover:shadow-[0_0_24px_rgba(16,185,129,0.5)] border border-emerald-400/50 transition-all flex items-center gap-2 shrink-0 cursor-pointer group"
-            >
-              <Briefcase className="w-3.5 h-3.5 text-emerald-300 group-hover:rotate-12 transition-transform" />
-              <span>Apply for Staff Contractor</span>
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping hidden sm:inline" />
-            </button>
-
-            {/* Redeem Code */}
+            {/* Redeem */}
             <button
               onClick={() => {
                 setShowRedeemModal(true);
                 setRedeemStatus({ type: null, message: '' });
               }}
-              className="px-3 py-1.5 text-xs font-bold rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-black shadow-md transition-all flex items-center gap-1.5 shrink-0 cursor-pointer"
+              className="px-3 py-1.5 text-xs font-bold rounded-lg bg-amber-500 hover:bg-amber-400 text-black transition-all flex items-center gap-1.5 shrink-0 cursor-pointer whitespace-nowrap"
             >
               <KeyRound className="w-3.5 h-3.5" />
-              <span>Redeem</span>
+              <span className="hidden sm:inline">Redeem</span>
             </button>
 
-            {/* Authenticated User Profile or Sign-In */}
+            {/* User Profile or Sign In */}
             {currentUserProfile ? (
               <div className="flex items-center gap-1.5">
                 <button
@@ -746,16 +655,15 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
                     setProfileModalTab('notifications');
                     setShowProfileModal(true);
                   }}
-                  className="p-2 rounded-xl bg-[#140b0e] hover:bg-[#1f1116] border border-red-500/40 text-red-300 relative transition-all flex items-center justify-center cursor-pointer shadow-md"
-                  title="View your staff notifications, codes, and PDF passes inbox"
+                  className="p-2 rounded-lg bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-neutral-300 relative transition-colors cursor-pointer"
+                  title="Notifications & Inbox"
                 >
-                  <Bell className="w-4 h-4" />
-                  {currentUserProfile.notifications &&
-                    currentUserProfile.notifications.length > 0 && (
-                      <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-600 text-white text-[10px] font-black flex items-center justify-center animate-bounce">
-                        {currentUserProfile.notifications.length}
-                      </span>
-                    )}
+                  <Bell className="w-3.5 h-3.5" />
+                  {currentUserProfile.notifications && currentUserProfile.notifications.length > 0 && (
+                    <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-600 text-white text-[9px] font-bold flex items-center justify-center tabular-nums">
+                      {currentUserProfile.notifications.length}
+                    </span>
+                  )}
                 </button>
 
                 <button
@@ -763,29 +671,25 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
                     setProfileModalTab('profile');
                     setShowProfileModal(true);
                   }}
-                  className="px-3 py-1.5 rounded-xl bg-[#140b0e] hover:bg-[#1f1116] border border-red-500/40 hover:border-red-400 transition-all flex items-center gap-2 shadow-md cursor-pointer group"
+                  className="px-2.5 py-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 transition-colors flex items-center gap-2 cursor-pointer"
                 >
                   {currentUserProfile.photoURL ? (
                     <img
                       src={currentUserProfile.photoURL}
                       alt=""
-                      className="w-5 h-5 rounded-full object-cover border border-red-400/60"
+                      className="w-5 h-5 rounded-full object-cover"
                     />
                   ) : (
-                    <div className="w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center font-bold text-[10px]">
+                    <div className="w-5 h-5 rounded-full bg-red-600 text-white flex items-center justify-center font-bold text-[10px]">
                       {currentUserProfile.displayName?.[0]?.toUpperCase() || 'U'}
                     </div>
                   )}
-                  <span className="text-xs font-bold text-neutral-200 group-hover:text-white max-w-[90px] truncate">
-                    {currentUserProfile.discordUser ||
-                    currentUserProfile.discordUsername
-                      ? `@${
-                          currentUserProfile.discordUser ||
-                          currentUserProfile.discordUsername
-                        }`
+                  <span className="text-xs font-semibold text-neutral-200 max-w-[85px] truncate hidden sm:inline">
+                    {currentUserProfile.discordUser || currentUserProfile.discordUsername
+                      ? `@${currentUserProfile.discordUser || currentUserProfile.discordUsername}`
                       : currentUserProfile.displayName || 'Player'}
                   </span>
-                  <span className="text-[10px] font-mono font-black bg-amber-500 text-black px-1.5 py-0.5 rounded">
+                  <span className="text-[10px] font-mono font-bold bg-amber-500 text-black px-1.5 py-0.5 rounded tabular-nums">
                     {(currentUserProfile.points || 0).toLocaleString()}
                   </span>
                 </button>
@@ -793,326 +697,315 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
             ) : (
               <button
                 onClick={() => setShowAuthModal(true)}
-                className="px-3 py-1.5 text-xs font-bold rounded-xl bg-gradient-to-r from-red-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white shadow-md transition-all flex items-center gap-1.5 cursor-pointer font-sans"
+                className="px-3 py-1.5 text-xs font-bold rounded-lg bg-red-600 hover:bg-red-500 text-white transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
               >
                 <LogIn className="w-3.5 h-3.5" />
                 <span>Sign In</span>
               </button>
             )}
 
-            {/* Unlock with Password */}
+            {userPerms.canAccessNewspaperStudio && onOpenNewspaperStudio && (
+              <button
+                type="button"
+                onClick={onOpenNewspaperStudio}
+                className="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-neutral-900 hover:bg-neutral-800 text-amber-300 border border-amber-500/30 transition-colors flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+                title="Open Newspaper Studio"
+              >
+                <Newspaper className="w-3.5 h-3.5" />
+                <span className="hidden lg:inline">Studio</span>
+              </button>
+            )}
+
             <button
               onClick={onOpenStaffPortal}
-              className="px-3 py-1.5 text-xs font-semibold rounded-xl bg-neutral-900 hover:bg-neutral-800 text-neutral-300 border border-neutral-700 transition-all flex items-center gap-1.5 shadow-sm cursor-pointer"
+              className="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-neutral-900 hover:bg-neutral-800 text-neutral-300 border border-neutral-800 transition-colors flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
               title="Unlock Staff Administration Studio"
             >
               <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
-              <span className="hidden sm:inline">Unlock with Password</span>
+              <span className="hidden lg:inline">Staff Unlock</span>
             </button>
           </div>
         </div>
       </header>
 
-      {/* TAB 1: HOME PAGE */}
+      {/* TAB 1: COMPACT INTERACTIVE HOME WITH SUB-TABS */}
       {activeNavTab === 'HOME' && (
-        <div className="relative overflow-hidden">
-          {/* DYNAMIC MOVING BACKGROUND VISUAL EFFECTS */}
-          <div className="absolute inset-0 pointer-events-none -z-10 overflow-hidden">
-            {/* Drifting Deep Red Atmospheric Nebula / Mist */}
-            <div className="absolute -top-40 left-1/4 w-[600px] h-[600px] bg-red-900/15 rounded-full blur-[140px] animate-pulse" />
-            <div className="absolute top-1/2 -right-40 w-[500px] h-[500px] bg-amber-900/15 rounded-full blur-[130px] animate-pulse" style={{ animationDuration: '6s' }} />
-            <div className="absolute bottom-20 left-10 w-[550px] h-[550px] bg-red-950/25 rounded-full blur-[150px] animate-pulse" style={{ animationDuration: '8s' }} />
-
-            {/* Moving Concert Laser Spotlight Sweep */}
-            <div
-              className="absolute -top-[50%] left-[-20%] w-[140%] h-[200%] opacity-15 mix-blend-screen pointer-events-none"
-              style={{
-                background:
-                  'linear-gradient(115deg, transparent 40%, rgba(220, 38, 38, 0.4) 48%, rgba(251, 191, 36, 0.3) 50%, rgba(220, 38, 38, 0.4) 52%, transparent 60%)',
-                animation: 'laserSweep 12s linear infinite',
-              }}
-            />
-
-            {/* Secondary Counter Laser Beam */}
-            <div
-              className="absolute -top-[50%] right-[-20%] w-[140%] h-[200%] opacity-10 mix-blend-screen pointer-events-none"
-              style={{
-                background:
-                  'linear-gradient(245deg, transparent 42%, rgba(239, 68, 68, 0.35) 49%, rgba(245, 158, 11, 0.25) 50%, rgba(239, 68, 68, 0.35) 51%, transparent 58%)',
-                animation: 'laserSweepRev 16s linear infinite',
-              }}
-            />
-
-            {/* Floating Rising Embers & Sparkles */}
-            <div className="absolute inset-0 opacity-25">
-              {[
-                { left: '10%', top: '20%', size: 'w-2 h-2', delay: '0s', dur: '4s' },
-                { left: '25%', top: '65%', size: 'w-1.5 h-1.5', delay: '1.2s', dur: '5s' },
-                { left: '45%', top: '30%', size: 'w-2.5 h-2.5', delay: '0.5s', dur: '6s' },
-                { left: '60%', top: '80%', size: 'w-1 h-1', delay: '2s', dur: '4.5s' },
-                { left: '75%', top: '40%', size: 'w-2 h-2', delay: '1.5s', dur: '5.5s' },
-                { left: '88%', top: '15%', size: 'w-1.5 h-1.5', delay: '0.8s', dur: '4s' },
-                { left: '35%', top: '90%', size: 'w-2 h-2', delay: '2.5s', dur: '6.5s' },
-                { left: '80%', top: '70%', size: 'w-1.5 h-1.5', delay: '1s', dur: '5s' },
-              ].map((p, idx) => (
-                <div
-                  key={idx}
-                  className={`absolute ${p.size} rounded-full bg-gradient-to-r from-red-500 to-amber-400 blur-[1px] animate-ping`}
-                  style={{
-                    left: p.left,
-                    top: p.top,
-                    animationDuration: p.dur,
-                    animationDelay: p.delay,
-                  }}
-                />
-              ))}
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-6 relative z-10">
+          {/* Compact Interactive Hero Banner */}
+          <section className="relative rounded-2xl overflow-hidden border border-red-900/50 bg-[#0b0709] group">
+            <div className="absolute inset-0">
+              <img
+                src="/src/assets/images/hero_mj_cinematic_stage_1794407118726.jpg"
+                alt="Michael Jackson Stage Concert"
+                className="w-full h-full object-cover object-center brightness-[0.38] contrast-[1.15] transition-transform duration-700 group-hover:scale-[1.03]"
+              />
+              <div className="absolute inset-0 bg-gradient-to-r from-[#07070a]/95 via-[#07070a]/75 to-transparent" />
+              <div className="absolute -inset-12 bg-red-600/10 blur-3xl animate-spotlight-drift pointer-events-none" />
             </div>
 
-            {/* Vinyl soundwave horizontal ambient bar */}
-            <div className="absolute bottom-0 inset-x-0 h-40 bg-gradient-to-t from-[#07070a] to-transparent" />
-          </div>
-
-          <style>{`
-            @keyframes laserSweep {
-              0% { transform: translateY(-30%) rotate(-8deg); }
-              50% { transform: translateY(20%) rotate(8deg); }
-              100% { transform: translateY(-30%) rotate(-8deg); }
-            }
-            @keyframes laserSweepRev {
-              0% { transform: translateY(20%) rotate(10deg); }
-              50% { transform: translateY(-25%) rotate(-6deg); }
-              100% { transform: translateY(20%) rotate(10deg); }
-            }
-          `}</style>
-
-          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 space-y-16 relative z-10">
-            {/* CINEMATIC HERO SECTION WITH CENTERED REACTIVE DRIPPING BLOOD MJJ RECORDS */}
-            <section className="relative rounded-3xl overflow-hidden border-2 border-red-900/80 shadow-[0_0_90px_rgba(220,38,38,0.35)] bg-black">
-              {/* Background Image Stage Layer */}
-              <div className="absolute inset-0">
-                <img
-                  src="/src/assets/images/hero_mj_cinematic_stage_1794407118726.jpg"
-                  alt="Michael Jackson Stage Concert"
-                  className="w-full h-full object-cover object-center brightness-[0.4] contrast-[1.2]"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-[#07070a] via-[#120609]/80 to-transparent" />
-                <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_20%,#07070a_95%)]" />
-              </div>
-
-              <div className="relative z-10 px-6 py-16 sm:py-24 max-w-5xl mx-auto flex flex-col items-center text-center space-y-8">
-                {/* Top Glowing Badge */}
-                <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-red-950/90 border border-red-500/50 text-red-300 text-xs font-mono font-black uppercase tracking-[0.25em] shadow-[0_0_20px_rgba(220,38,38,0.4)]">
-                  <Flame className="w-4 h-4 text-red-400 animate-pulse" />
-                  <span>THE OFFICIAL KING OF POP ENTERTAINMENT LABEL</span>
+            <div className="relative z-10 px-6 sm:px-10 py-8 sm:py-12 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+              <div className="space-y-4 max-w-2xl">
+                <div className="text-[11px] font-mono uppercase tracking-[0.25em] text-red-400 font-bold">
+                  Official Entertainment &amp; Press Label
                 </div>
 
-                {/* CENTERPIECE: MJJ RECORDS WITH REACTIVE DRIPPING BLOOD */}
-                <div className="relative group/dripping select-none cursor-pointer py-4">
-                  {/* Blood Aura Glow */}
-                  <div className="absolute -inset-8 bg-red-600/25 rounded-full blur-3xl pointer-events-none group-hover/dripping:bg-red-600/40 transition-all duration-500" />
-
-                  {/* MJJ Headline */}
+                <div className="select-none">
                   <h1
-                    className="text-6xl sm:text-8xl md:text-9xl lg:text-[130px] font-black font-serif tracking-tight text-red-600 uppercase leading-none drop-shadow-[0_0_30px_rgba(220,38,38,0.95)] transition-transform duration-300 group-hover/dripping:scale-105"
+                    className="text-5xl sm:text-7xl font-black font-serif tracking-wide text-red-600 uppercase leading-none"
                     style={{
-                      textShadow:
-                        '0 0 15px #7f1d1d, 0 0 35px #dc2626, 0 0 70px #ef4444, 4px 6px 0px #300305, -2px -2px 0px #000',
-                      letterSpacing: '0.08em',
+                      textShadow: '0 0 24px rgba(220,38,38,0.55), 3px 4px 0px #280305',
                     }}
                   >
-                    MJJ
+                    MJJ <span className="text-red-500">RECORDS</span>
                   </h1>
-
-                  {/* RECORDS Sub-headline */}
-                  <h2
-                    className="text-3xl sm:text-5xl md:text-7xl lg:text-8xl font-black font-serif tracking-[0.25em] text-red-500 uppercase leading-none mt-2 drop-shadow-[0_0_25px_rgba(239,68,68,0.85)]"
-                    style={{
-                      textShadow:
-                        '0 0 12px #991b1b, 0 0 35px #dc2626, 3px 5px 0px #300305, -2px -2px 0px #000',
-                    }}
-                  >
-                    RECORDS
-                  </h2>
-
-                  {/* Reactive Animated Blood Drips Hanging Under Letters */}
-                  <div className="relative w-full h-8 flex justify-center gap-6 sm:gap-12 pointer-events-none overflow-visible mt-2">
-                    {[
-                      { delay: '0s', height: '22px' },
-                      { delay: '0.4s', height: '34px' },
-                      { delay: '0.8s', height: '20px' },
-                      { delay: '0.2s', height: '38px' },
-                      { delay: '0.6s', height: '26px' },
-                      { delay: '1.0s', height: '32px' },
-                      { delay: '0.5s', height: '24px' },
-                      { delay: '0.9s', height: '36px' },
-                    ].map((drip, i) => (
+                  {/* Subtle Dripping Blood Accent Bar */}
+                  <div className="flex gap-5 pt-1.5 pl-1 pointer-events-none">
+                    {[16, 24, 14, 28, 18, 22].map((h, i) => (
                       <div
                         key={i}
-                        className="w-2 rounded-full bg-gradient-to-b from-red-600 via-red-700 to-red-950 animate-blood-drip shadow-[0_0_10px_#dc2626]"
-                        style={{
-                          height: drip.height,
-                          animationDelay: drip.delay,
-                          animationDuration: '1.8s',
-                          animationIterationCount: 'infinite',
-                        }}
+                        className="w-1.5 rounded-full bg-gradient-to-b from-red-600 to-red-950 animate-blood-drip"
+                        style={{ height: `${h}px`, animationDelay: `${i * 0.28}s` }}
                       />
                     ))}
                   </div>
                 </div>
 
-                {/* Action Buttons */}
-                <div className="flex flex-wrap items-center justify-center gap-4 pt-2">
+                <p className="text-xs sm:text-sm text-neutral-300 max-w-lg leading-relaxed">
+                  Explore restored concert streams, weekly community challenges, broadsheet press editions, and live leaderboard standings.
+                </p>
+
+                <div className="flex flex-wrap items-center gap-3 pt-1">
                   <button
                     onClick={() => setActiveNavTab('STREAMING')}
-                    className="px-6 py-3.5 rounded-2xl bg-gradient-to-r from-red-600 via-red-500 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white font-bold text-sm shadow-xl shadow-red-950/60 transition-all flex items-center gap-2.5 transform hover:-translate-y-0.5 cursor-pointer"
+                    className="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-xs uppercase tracking-wider transition-all flex items-center gap-2 cursor-pointer active:scale-95"
                   >
-                    <Play className="w-4 h-4 fill-white" />
-                    <span>Explore Music &amp; Concerts</span>
+                    <Play className="w-3.5 h-3.5 fill-white" />
+                    <span>Streaming Vault</span>
                   </button>
 
+                  <button
+                    onClick={() => setActiveNavTab('NEWSPAPER')}
+                    className="px-5 py-2.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-amber-300 border border-amber-500/30 font-bold text-xs uppercase tracking-wider transition-all flex items-center gap-2 cursor-pointer active:scale-95"
+                  >
+                    <BookOpen className="w-3.5 h-3.5" />
+                    <span>Read Broadsheet</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Quick Live Snapshot Card */}
+              <div className="lg:w-80 shrink-0 bg-[#0e0e13]/90 backdrop-blur-md border border-neutral-800 rounded-xl p-4 space-y-3">
+                <div className="flex items-center justify-between text-[11px] font-mono text-neutral-400">
+                  <span className="text-amber-400 font-bold uppercase tracking-wider">Studio Pulse</span>
+                  <span className="tabular-nums">{allCommunityUsers.length} Players</span>
+                </div>
+
+                {featuredTrack && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveNavTab('STREAMING')}
+                    className="w-full p-2.5 rounded-lg bg-neutral-950/90 border border-neutral-800 hover:border-red-500/40 flex items-center gap-3 text-left transition-colors cursor-pointer group/track"
+                  >
+                    <div className="w-10 h-10 rounded-lg bg-black border border-neutral-800 overflow-hidden shrink-0 flex items-center justify-center">
+                      {featuredTrack.coverImage ? (
+                        <img src={featuredTrack.coverImage} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <Disc className="w-5 h-5 text-red-400" />
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-bold text-white truncate group-hover/track:text-amber-300 transition-colors">
+                        {featuredTrack.title}
+                      </div>
+                      <div className="text-[11px] font-mono text-neutral-400 truncate">
+                        {featuredTrack.album} · {featuredTrack.era}
+                      </div>
+                    </div>
+                    <ArrowRight className="w-3.5 h-3.5 text-neutral-500 group-hover/track:translate-x-0.5 group-hover/track:text-white transition-all shrink-0" />
+                  </button>
+                )}
+
+                {publishedDoc ? (
+                  <button
+                    type="button"
+                    onClick={() => setActiveNavTab('NEWSPAPER')}
+                    className="w-full p-2.5 rounded-lg bg-neutral-950/90 border border-neutral-800 hover:border-amber-500/40 flex items-center justify-between text-left transition-colors cursor-pointer"
+                  >
+                    <div className="min-w-0">
+                      <div className="text-[10px] font-mono uppercase text-emerald-400 font-bold">
+                        Live Edition
+                      </div>
+                      <div className="text-xs font-semibold text-white truncate">
+                        {publishedDoc.name || publishedDoc.title}
+                      </div>
+                    </div>
+                    {timeLeft && (
+                      <span className="text-[10px] font-mono text-amber-300 tabular-nums shrink-0 ml-2">
+                        {timeLeft.hours}h {String(timeLeft.minutes).padStart(2, '0')}m
+                      </span>
+                    )}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setActiveNavTab('NEWSPAPER')}
+                    className="w-full p-2.5 rounded-lg bg-neutral-950/90 border border-neutral-800 hover:border-amber-500/40 flex items-center justify-between text-left transition-colors cursor-pointer"
+                  >
+                    <span className="text-xs font-medium text-neutral-300">
+                      Browse Press Archives ({archives.length})
+                    </span>
+                    <ArrowRight className="w-3.5 h-3.5 text-neutral-500" />
+                  </button>
+                )}
+              </div>
+            </div>
+          </section>
+
+          {/* HOME SUB-TABS BAR — Keeps Home compact instead of a massive vertical scroll */}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-neutral-800/80 pb-3">
+            <div className="flex items-center gap-1.5 bg-[#0d0d12] p-1 rounded-xl border border-neutral-800/90 overflow-x-auto no-scrollbar">
+              {(
+                [
+                  { id: 'stage', label: 'Event Stage', icon: Calendar },
+                  { id: 'challenges', label: 'Challenges', icon: Trophy },
+                  { id: 'leaderboard', label: 'Leaderboard (2h Vote)', icon: Sparkles },
+                  { id: 'news', label: 'Latest News', icon: Newspaper },
+                ] as const
+              ).map((item) => {
+                const Icon = item.icon;
+                const active = homeSubTab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setHomeSubTab(item.id)}
+                    className={`px-3.5 py-2 rounded-lg text-xs font-mono font-bold transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+                      active
+                        ? 'bg-red-600 text-white shadow-sm'
+                        : 'text-neutral-400 hover:text-white hover:bg-neutral-900'
+                    }`}
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                    <span>{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="text-[11px] font-mono text-neutral-500 hidden sm:block">
+              Switch tabs to view stage events, contests, leaderboard, or news
+            </div>
+          </div>
+
+          {/* ACTIVE HOME SUB-TAB CONTENT */}
+          <div key={homeSubTab} className="animate-panel-reveal">
+            {homeSubTab === 'stage' && (
+              <div className="space-y-5">
+                <UpcomingEventCountdown />
+              </div>
+            )}
+
+            {homeSubTab === 'challenges' && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-xl font-serif font-bold text-white">Active Community Challenges</h2>
+                    <p className="text-xs text-neutral-400">Enter photo contests and vote on top entries.</p>
+                  </div>
                   <button
                     onClick={() => setActiveNavTab('CHALLENGES')}
-                    className="px-6 py-3.5 rounded-2xl bg-[#1c0c11] hover:bg-[#281219] text-amber-300 border border-amber-500/40 font-bold text-sm transition-all flex items-center gap-2 shadow-lg cursor-pointer transform hover:-translate-y-0.5"
+                    className="px-3.5 py-2 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-amber-300 border border-neutral-800 text-xs font-mono font-bold flex items-center gap-1.5 cursor-pointer"
                   >
-                    <Trophy className="w-4 h-4 text-amber-400" />
-                    <span>Join Community Challenges</span>
+                    <span>Full Challenges Page</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
                   </button>
+                </div>
 
+                <CommunityChallengesSection
+                  currentUser={currentUserProfile}
+                  onRequireAuth={() => setShowAuthModal(true)}
+                />
+              </div>
+            )}
+
+            {homeSubTab === 'leaderboard' && (
+              <CommunityLeaderboardSection
+                users={allCommunityUsers}
+                currentUser={currentUserProfile}
+                onRequireAuth={() => setShowAuthModal(true)}
+              />
+            )}
+
+            {homeSubTab === 'news' && (
+              <div className="space-y-5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-xl font-serif font-bold text-white">Latest Press Dispatches</h2>
+                    <p className="text-xs text-neutral-400">Official MJJ Records headlines and release notes.</p>
+                  </div>
                   <button
                     onClick={() => setActiveNavTab('NEWS')}
-                    className="px-5 py-3.5 rounded-2xl bg-neutral-900/90 hover:bg-neutral-800 text-neutral-300 border border-neutral-700 text-sm font-semibold transition-all flex items-center gap-2 cursor-pointer transform hover:-translate-y-0.5"
+                    className="px-3.5 py-2 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-red-300 border border-neutral-800 text-xs font-mono font-bold flex items-center gap-1.5 cursor-pointer"
                   >
-                    <Newspaper className="w-4 h-4" />
-                    <span>Read News</span>
+                    <span>All News</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
                   </button>
                 </div>
-              </div>
-            </section>
 
-          {/* UPCOMING EVENTS COUNTDOWN SECTION */}
-          <UpcomingEventCountdown />
-
-          {/* ACTIVE CHALLENGES & LEADERBOARD SPOTLIGHT */}
-          <section className="space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-neutral-800 pb-4">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <Trophy className="w-5 h-5 text-amber-400" />
-                  <h3 className="text-2xl font-serif font-black text-white uppercase tracking-wider">
-                    Community Challenges &amp; Contests
-                  </h3>
-                </div>
-                <p className="text-xs text-neutral-400">
-                  Upload your vintage Michael Jackson photos, dance poses, and edits to win massive points and crown the leaderboard.
-                </p>
-              </div>
-
-              <button
-                onClick={() => setActiveNavTab('CHALLENGES')}
-                className="px-4 py-2 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-amber-300 border border-amber-500/30 text-xs font-mono font-bold flex items-center gap-2 transition-colors cursor-pointer self-start sm:self-auto"
-              >
-                <span>View All Challenges</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
-
-            <CommunityChallengesSection
-              currentUser={currentUserProfile}
-              onRequireAuth={() => setShowAuthModal(true)}
-            />
-          </section>
-
-          {/* LATEST BREAKING NEWS TEASER */}
-          <section className="space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-neutral-800 pb-4">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <Newspaper className="w-5 h-5 text-red-500" />
-                  <h3 className="text-2xl font-serif font-black text-white uppercase tracking-wider">
-                    Official MJJ Records News &amp; Releases
-                  </h3>
-                </div>
-                <p className="text-xs text-neutral-400">
-                  Headlines, master recording restorations, album retrospectives, and global tour celebrations.
-                </p>
-              </div>
-
-              <button
-                onClick={() => setActiveNavTab('NEWS')}
-                className="px-4 py-2 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-red-300 border border-red-500/30 text-xs font-mono font-bold flex items-center gap-2 transition-colors cursor-pointer self-start sm:self-auto"
-              >
-                <span>Browse News Hub</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {newsArticles.slice(0, 3).map((art) => (
-                <div
-                  key={art.id}
-                  onClick={() => setActiveNavTab('NEWS')}
-                  className="bg-[#100a0d] border border-red-950/70 hover:border-red-500/50 rounded-2xl overflow-hidden flex flex-col justify-between group transition-all duration-300 cursor-pointer shadow-lg hover:-translate-y-1"
-                >
-                  <div className="aspect-[16/10] bg-neutral-900 overflow-hidden relative">
-                    <img
-                      src={art.mainImage || '/src/assets/images/hero_mj_cinematic_stage_1794407118726.jpg'}
-                      alt=""
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                    />
-                    <div className="absolute top-3 left-3 px-2 py-0.5 rounded bg-red-950/80 border border-red-500/40 text-[9px] font-mono font-bold text-red-300 uppercase">
-                      {art.category}
-                    </div>
-                  </div>
-
-                  <div className="p-5 space-y-2 flex-1 flex flex-col justify-between">
-                    <div className="space-y-1.5">
-                      <div className="text-[10px] font-mono text-neutral-500">
-                        {new Date(art.publishedDate).toLocaleDateString()} · {art.readingTimeMinutes || 3} min read
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                  {newsArticles.slice(0, 3).map((art) => (
+                    <div
+                      key={art.id}
+                      onClick={() => setActiveNavTab('NEWS')}
+                      className="interactive-card bg-[#0d0d11] border border-neutral-800/90 hover:border-red-500/40 rounded-2xl overflow-hidden flex flex-col justify-between group cursor-pointer"
+                    >
+                      <div className="aspect-[16/10] bg-neutral-900 overflow-hidden">
+                        <img
+                          src={art.mainImage || '/src/assets/images/hero_mj_cinematic_stage_1794407118726.jpg'}
+                          alt=""
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                        />
                       </div>
-                      <h4 className="font-serif font-bold text-base text-white group-hover:text-amber-300 transition-colors line-clamp-2">
-                        {art.headline}
-                      </h4>
-                      <p className="text-xs text-neutral-400 line-clamp-2 leading-relaxed">
-                        {art.shortDescription}
-                      </p>
-                    </div>
 
-                    <div className="pt-3 mt-3 border-t border-neutral-800/80 flex items-center justify-between text-xs font-semibold text-red-400">
-                      <span>Read Story</span>
-                      <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
+                      <div className="p-4 space-y-2 flex-1 flex flex-col justify-between">
+                        <div className="space-y-1.5">
+                          <div className="text-[11px] font-mono text-neutral-400 flex items-center gap-2">
+                            <span className="text-red-400 font-bold uppercase">{art.category}</span>
+                            <span aria-hidden="true">·</span>
+                            <span>{new Date(art.publishedDate).toLocaleDateString()}</span>
+                          </div>
+                          <h4 className="font-serif font-bold text-base text-white group-hover:text-amber-300 transition-colors line-clamp-2">
+                            {art.headline}
+                          </h4>
+                          <p className="text-xs text-neutral-400 line-clamp-2 leading-relaxed">
+                            {art.shortDescription}
+                          </p>
+                        </div>
+
+                        <div className="pt-2.5 mt-2 border-t border-neutral-800/80 flex items-center justify-between text-xs font-semibold text-red-400">
+                          <span>Read Story</span>
+                          <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
+                        </div>
+                      </div>
                     </div>
-                  </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          </section>
-
-          {/* COMMUNITY LEADERBOARD SECTION */}
-          <section className="space-y-6">
-            <CommunityLeaderboardSection
-              users={allCommunityUsers}
-              currentUser={currentUserProfile}
-              onRequireAuth={() => setShowAuthModal(true)}
-            />
-          </section>
-
-          {/* REAL-TIME WORLDWIDE COMMUNITY CHAT SECTION */}
-          <section className="space-y-6">
-            <CommunityLiveChat
-              currentUser={currentUserProfile}
-              onRequireAuth={() => setShowAuthModal(true)}
-            />
-          </section>
+              </div>
+            )}
+          </div>
         </main>
-      </div>
       )}
 
       {/* TAB 2: NEWS HUB */}
-      {activeNavTab === 'NEWS' && <NewsPlatformSection />}
+      {activeNavTab === 'NEWS' && (
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10 animate-panel-reveal relative z-10">
+          <NewsPlatformSection />
+        </div>
+      )}
 
       {/* TAB 3: CHALLENGES & CONTESTS */}
       {activeNavTab === 'CHALLENGES' && (
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-12">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10 space-y-8 animate-panel-reveal relative z-10">
           <CommunityChallengesSection
             currentUser={currentUserProfile}
             onRequireAuth={() => setShowAuthModal(true)}
@@ -1126,30 +1019,34 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
       )}
 
       {/* TAB 4: STREAMING PLATFORM */}
-      {activeNavTab === 'STREAMING' && <StreamingPlatformSection />}
+      {activeNavTab === 'STREAMING' && (
+        <div className="animate-panel-reveal relative z-10">
+          <StreamingPlatformSection />
+        </div>
+      )}
 
-      {/* TAB 5: NEWSPAPER / PRESS STUDIO (Preserved functionality) */}
+      {/* TAB 5: NEWSPAPER / PRESS STUDIO */}
       {activeNavTab === 'NEWSPAPER' && (
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-14">
-          {/* Header */}
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10 space-y-10 animate-panel-reveal relative z-10">
           <div className="border-b border-neutral-800 pb-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <Newspaper className="w-6 h-6 text-amber-400" />
-                <h2 className="text-2xl font-serif font-black text-white uppercase tracking-wider">
-                  MJJ Records Broadsheet &amp; Pressroom
-                </h2>
+              <div className="flex items-center gap-2 text-xs font-mono text-amber-400 uppercase tracking-widest">
+                <Newspaper className="w-4 h-4" />
+                <span>MJJ Records Pressroom</span>
               </div>
+              <h2 className="text-2xl sm:text-3xl font-serif font-black text-white uppercase tracking-tight">
+                Broadsheet Editions &amp; Archives
+              </h2>
               <p className="text-xs text-neutral-400">
-                Read official printed press editions, interactive 3D paper flipbooks, and historical archives.
+                Read official printed press editions in the interactive 3D flipbook or download print-ready PDF copies.
               </p>
             </div>
 
             <button
               onClick={onToggleTexture}
-              className={`px-3 py-1.5 text-xs font-medium rounded-xl border transition-all flex items-center gap-1.5 self-start sm:self-auto ${
+              className={`px-3.5 py-2 text-xs font-mono font-semibold rounded-xl border transition-all flex items-center gap-1.5 self-start sm:self-auto cursor-pointer ${
                 textureEnabled
-                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-sm'
+                  ? 'bg-amber-500/15 text-amber-300 border-amber-500/40'
                   : 'bg-neutral-900 text-neutral-400 border-neutral-800 hover:text-neutral-200'
               }`}
             >
@@ -1158,21 +1055,16 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
             </button>
           </div>
 
-          {/* Currently Published Newspaper Section */}
-          <section className="space-y-6">
+          <section className="space-y-5">
             {publishedDoc ? (
-              <div className="bg-gradient-to-r from-neutral-900 via-neutral-900 to-[#14141e] border border-neutral-800 hover:border-amber-500/50 rounded-3xl p-6 sm:p-8 flex flex-col md:flex-row items-center gap-8 shadow-2xl relative overflow-hidden group transition-all duration-300">
-                <div className="absolute top-0 left-0 w-2 h-full bg-gradient-to-b from-amber-400 to-amber-600" />
-                <div className="absolute -right-20 -bottom-20 w-64 h-64 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
-
-                {/* Newspaper Preview Card */}
-                <div className="w-full md:w-64 aspect-[3/4] bg-neutral-950 border border-neutral-700 rounded-2xl overflow-hidden shadow-2xl relative flex flex-col justify-between p-4 group-hover:border-amber-400 transition-all transform group-hover:scale-105 duration-300">
+              <div className="bg-[#0d0d11] border border-neutral-800 hover:border-amber-500/40 rounded-2xl p-6 sm:p-8 flex flex-col md:flex-row items-center gap-7 transition-colors">
+                <div className="w-full md:w-56 aspect-[3/4] bg-neutral-950 border border-neutral-800 rounded-xl overflow-hidden flex flex-col justify-between p-4 shrink-0">
                   <div className="text-center border-b border-neutral-800 pb-2">
                     <span className="text-[10px] font-serif font-bold uppercase tracking-widest text-amber-400">
                       THE MJJ DAILY PRESS
                     </span>
-                    <div className="text-[8px] text-neutral-500 uppercase tracking-tighter">
-                      EDITION #{publishedDoc.issueNumber || 1} • OFFICIAL PRESS
+                    <div className="text-[9px] text-neutral-500 uppercase font-mono mt-0.5">
+                      Edition #{publishedDoc.issueNumber || 1}
                     </div>
                   </div>
 
@@ -1181,58 +1073,79 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
                       {publishedDoc.name || publishedDoc.title}
                     </h4>
                     <p className="text-[10px] text-neutral-400 line-clamp-3 leading-snug font-serif italic">
-                      "{publishedDoc.pages?.[0]?.articles?.[0]?.title || 'Breakthrough headlines from MJJ Records studio archives.'}"
+                      "{extractLeadHeadline(publishedDoc, 'Official MJJ Records broadsheet edition.')}"
                     </p>
                   </div>
 
-                  <div className="pt-2 border-t border-neutral-800 text-[9px] text-neutral-400 flex justify-between items-center">
+                  <div className="pt-2 border-t border-neutral-800 text-[10px] font-mono text-neutral-400 flex justify-between items-center">
                     <span>{publishedDoc.pages?.length || 1} Pages</span>
-                    <span className="text-amber-400 font-bold">Interactive 3D</span>
+                    <span className="text-amber-400 font-bold">3D Reader</span>
                   </div>
                 </div>
 
-                {/* Info & CTA */}
                 <div className="flex-1 space-y-4 text-left">
-                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-semibold">
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-                    <span>ON AIR / LIVE PUBLISHED</span>
+                  <div className="flex items-center gap-2 text-xs font-mono text-emerald-400 font-bold uppercase tracking-wider">
+                    <span>On Air · Live Published</span>
+                    {timeLeft && (
+                      <>
+                        <span className="text-neutral-600" aria-hidden="true">·</span>
+                        <span className="text-amber-300 tabular-nums">
+                          {timeLeft.hours}h {String(timeLeft.minutes).padStart(2, '0')}m left
+                        </span>
+                      </>
+                    )}
                   </div>
 
                   <h4 className="text-2xl sm:text-3xl font-serif font-bold text-white">
                     {publishedDoc.name || publishedDoc.title}
                   </h4>
 
-                  <p className="text-sm text-neutral-300 leading-relaxed">
-                    Published on {publishedDoc.publishedAt ? new Date(publishedDoc.publishedAt).toLocaleDateString() : 'Today'}. Open the flipbook viewer to read the full edition with real page-turning physics and discover secret rewards hidden inside.
+                  <p className="text-xs sm:text-sm text-neutral-300 leading-relaxed max-w-2xl">
+                    Published on {publishedDoc.publishedAt ? new Date(publishedDoc.publishedAt).toLocaleDateString() : 'Today'}. Open the flipbook viewer to inspect every page or download a clean PDF edition.
                   </p>
 
-                  <div className="flex flex-wrap items-center gap-4 pt-2">
+                  <div className="flex flex-wrap items-center gap-3 pt-1">
                     <button
                       onClick={() => setActiveReadingDoc(formatAsNewspaperProject(publishedDoc))}
-                      className="px-6 py-3 rounded-2xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-black font-bold text-sm shadow-xl shadow-amber-500/20 transition-all flex items-center gap-2 transform hover:-translate-y-0.5 cursor-pointer"
+                      className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs uppercase tracking-wider transition-all flex items-center gap-2 cursor-pointer active:scale-95"
                     >
-                      <BookOpen className="w-5 h-5" />
-                      <span>READ NEWSPAPER (3D FLIPBOOK)</span>
+                      <BookOpen className="w-4 h-4" />
+                      <span>Read 3D Flipbook</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={isExportingPortalPdf}
+                      onClick={() => handleDownloadPortalPdf(publishedDoc)}
+                      className="px-4 py-2.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-amber-300 border border-amber-500/30 font-bold text-xs uppercase tracking-wider transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                    >
+                      <Download className="w-4 h-4" />
+                      <span>{isExportingPortalPdf ? 'Exporting PDF...' : 'Download PDF'}</span>
                     </button>
                   </div>
-                </div>
 
-                {/* Real-Time Broadsheet Emoji Reactions Bar */}
-                <div className="w-full pt-4 border-t border-neutral-800/80">
-                  <NewspaperReactionBar
-                    newspaperId={publishedDoc.id || 'live-broadsheet'}
-                    currentUser={currentUserProfile}
-                    onRequireAuth={() => setShowAuthModal(true)}
-                  />
+                  {portalPdfStatus && (
+                    <div className="text-xs font-mono text-amber-300 bg-amber-500/10 border border-amber-500/30 px-3 py-1.5 rounded-lg inline-block">
+                      {portalPdfStatus}
+                    </div>
+                  )}
+
+                  <div className="pt-3 border-t border-neutral-800/80">
+                    <NewspaperReactionBar
+                      newspaperId={publishedDoc.id || 'live-broadsheet'}
+                      currentUser={currentUserProfile}
+                      onRequireAuth={() => setShowAuthModal(true)}
+                    />
+                  </div>
                 </div>
               </div>
             ) : (
               <div className="space-y-4">
-                <div className="bg-neutral-900/60 border border-dashed border-neutral-800 rounded-3xl p-12 text-center space-y-4">
-                  <AlertCircle className="w-10 h-10 text-neutral-500 mx-auto" />
+                <div className="bg-[#0d0d11] border border-dashed border-neutral-800 rounded-2xl p-10 text-center space-y-3">
+                  <AlertCircle className="w-9 h-9 text-neutral-500 mx-auto" />
                   <h4 className="text-lg font-serif font-bold text-neutral-300">No Newspaper Currently Live</h4>
                   <p className="text-xs text-neutral-500 max-w-md mx-auto">
-                    Staff members can publish broadsheets from the Staff Studio with custom countdown timers. Explore our past archives below!
+                    Staff members can publish broadsheets from the Staff Studio. Browse past archived editions below.
                   </p>
                 </div>
 
@@ -1245,36 +1158,31 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
             )}
           </section>
 
-          {/* Archival Library Section */}
-          <section className="space-y-6">
-            <div className="border-b border-neutral-800 pb-4 flex justify-between items-end">
+          <section className="space-y-5">
+            <div className="border-b border-neutral-800 pb-3 flex justify-between items-end">
               <div>
-                <h3 className="text-2xl font-serif font-bold text-neutral-100 flex items-center gap-2">
-                  <BookOpen className="w-6 h-6 text-amber-400" />
+                <h3 className="text-xl font-serif font-bold text-neutral-100 flex items-center gap-2">
+                  <BookOpen className="w-5 h-5 text-amber-400" />
                   <span>Public Archival Library</span>
                 </h3>
                 <p className="text-xs text-neutral-400">Past broadsheet releases &amp; historical press editions</p>
               </div>
-              <div className="text-xs text-neutral-500 font-mono">
-                Total Archived: {archives.length} Editions
+              <div className="text-xs text-neutral-500 font-mono tabular-nums">
+                {archives.length} Editions
               </div>
             </div>
 
             {archives.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                 {archives.map((archive) => (
                   <div
                     key={archive.id}
-                    className="bg-neutral-900/90 border border-neutral-800 rounded-2xl p-5 hover:border-amber-500/50 hover:shadow-xl hover:shadow-amber-500/10 transition-all duration-300 flex flex-col justify-between group transform hover:-translate-y-1"
+                    className="interactive-card bg-[#0d0d11] border border-neutral-800 hover:border-amber-500/40 rounded-2xl p-5 flex flex-col justify-between group"
                   >
-                    <div className="space-y-3">
-                      <div className="flex justify-between items-start">
-                        <span className="text-[10px] font-mono uppercase bg-neutral-800 text-amber-400 px-2.5 py-1 rounded-full border border-neutral-700">
-                          ARCHIVED EDITION
-                        </span>
-                        <span className="text-xs text-neutral-500 font-mono">
-                          {archive.lastEdited || '2025'}
-                        </span>
+                    <div className="space-y-2.5">
+                      <div className="flex justify-between items-center text-[11px] font-mono text-neutral-400">
+                        <span className="text-amber-400 font-bold uppercase">Archived</span>
+                        <span>{archive.lastEdited || '2025'}</span>
                       </div>
 
                       <h4 className="font-serif font-bold text-lg text-neutral-100 group-hover:text-amber-400 transition-colors">
@@ -1282,26 +1190,40 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
                       </h4>
 
                       <p className="text-xs text-neutral-400 line-clamp-2">
-                        {archive.pages?.[0]?.articles?.[0]?.title || 'Complete archived news edition from the MJJ Records collection.'}
+                        {extractLeadHeadline(archive, 'Complete archived edition from the MJJ Records collection.')}
                       </p>
                     </div>
 
-                    <div className="pt-4 mt-4 border-t border-neutral-800/80 flex items-center justify-between">
-                      <span className="text-xs text-neutral-500">{archive.pages?.length || 1} Pages</span>
-                      <button
-                        onClick={() => setActiveReadingDoc(formatAsNewspaperProject(archive))}
-                        className="px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-neutral-800 hover:bg-neutral-700 text-amber-300 border border-amber-500/20 transition-all flex items-center gap-1.5 cursor-pointer"
-                      >
-                        <span>Read Archive</span>
-                        <ArrowRight className="w-3.5 h-3.5" />
-                      </button>
+                    <div className="pt-4 mt-4 border-t border-neutral-800/80 flex items-center justify-between gap-2">
+                      <span className="text-xs font-mono text-neutral-500 tabular-nums">
+                        {archive.pages?.length || 1} Pages
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={isExportingPortalPdf}
+                          onClick={() => handleDownloadPortalPdf(archive)}
+                          className="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-neutral-900 hover:bg-neutral-800 text-neutral-200 border border-neutral-800 transition-colors flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                          title="Download Archive PDF"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          <span>PDF</span>
+                        </button>
+                        <button
+                          onClick={() => setActiveReadingDoc(formatAsNewspaperProject(archive))}
+                          className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-neutral-900 hover:bg-neutral-800 text-amber-300 border border-amber-500/20 transition-colors flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <span>Read</span>
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="bg-neutral-900/40 border border-neutral-800 rounded-2xl p-8 text-center text-xs text-neutral-500">
-                No archived broadsheets yet. Once published newspapers expire on their countdown timer, they will appear here automatically.
+              <div className="bg-[#0d0d11] border border-neutral-800 rounded-2xl p-8 text-center text-xs text-neutral-500">
+                No archived broadsheets yet.
               </div>
             )}
           </section>
@@ -1322,152 +1244,58 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
         />
       )}
 
-      {/* MARKETING TEAM RECRUITMENT APPLICATION MODAL */}
-      {showAppModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in">
-          <div className="bg-neutral-900 border border-neutral-700 rounded-3xl max-w-lg w-full p-6 sm:p-8 space-y-6 shadow-2xl relative max-h-[90vh] overflow-y-auto">
-            <button
-              onClick={() => setShowAppModal(false)}
-              className="absolute top-4 right-4 text-neutral-400 hover:text-white text-xl p-1"
-            >
-              ✕
-            </button>
-
-            <div className="text-center space-y-2">
-              <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 flex items-center justify-center mx-auto">
-                <Briefcase className="w-6 h-6" />
-              </div>
-              <h3 className="text-2xl font-serif font-bold text-white">Apply for Staff Contractor</h3>
-              <p className="text-xs text-neutral-400 max-w-sm mx-auto">
-                Submit your application to become an official MJJ Records Staff Contractor. Your application will be reviewed directly by staff.
-              </p>
+      {/* Offscreen full-opacity multi-page PDF capture container for public portal downloads */}
+      {pdfExportTarget && (
+        <div
+          ref={portalPdfContainerRef}
+          className="fixed left-[-12000px] top-0 w-[800px] opacity-100 pointer-events-none"
+          aria-hidden="true"
+        >
+          {(pdfExportTarget.pages || []).map((p) => (
+            <div key={p.id} className="export-page-target newspaper-print-page bg-white">
+              <NewspaperPageRenderer
+                page={p}
+                selectedElementId={null}
+                selectedImageSlot={null}
+                onSelectText={() => {}}
+                onSelectImage={() => {}}
+                previewMode={true}
+              />
             </div>
-
-            <form onSubmit={handleApplicationSubmit} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-neutral-300 mb-1.5 uppercase tracking-wider">
-                  Full Name / Alias
-                </label>
-                <input
-                  type="text"
-                  value={appFullName}
-                  onChange={(e) => setAppFullName(e.target.value)}
-                  placeholder="e.g. Jordan Miller"
-                  className="w-full px-4 py-2.5 rounded-xl bg-neutral-950 border border-neutral-700 text-white placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500 text-sm"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-neutral-300 mb-1.5 uppercase tracking-wider">
-                  Your Discord Username <span className="text-emerald-400">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={appDiscord}
-                  onChange={(e) => setAppDiscord(e.target.value)}
-                  placeholder="e.g. moonwalker_99"
-                  className="w-full px-4 py-2.5 rounded-xl bg-neutral-950 border border-neutral-700 text-white font-mono placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500 text-sm"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-neutral-300 mb-1.5 uppercase tracking-wider">
-                  Desired Staff Role <span className="text-emerald-400">*</span>
-                </label>
-                <select
-                  value={appRole}
-                  onChange={(e) => setAppRole(e.target.value)}
-                  className="w-full px-4 py-2.5 rounded-xl bg-neutral-950 border border-neutral-700 text-emerald-300 focus:outline-none focus:border-emerald-500 text-sm font-sans"
-                >
-                  <option value="App Moderator">🛡️ App Moderator (Chat moderation, muting, warnings)</option>
-                  <option value="Newspaper Specialist">📰 Newspaper Specialist (Broadsheet publishing &amp; editing)</option>
-                  <option value="Challenge Maker">🏆 Challenge Maker (Contest curation &amp; bounties)</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-neutral-300 mb-1.5 uppercase tracking-wider">
-                  Why do you want to join as a {appRole}? <span className="text-emerald-400">*</span>
-                </label>
-                <textarea
-                  rows={4}
-                  value={appReason}
-                  onChange={(e) => setAppReason(e.target.value)}
-                  placeholder={`Describe your experience and motivation to serve as a ${appRole}...`}
-                  className="w-full px-4 py-2.5 rounded-xl bg-neutral-950 border border-neutral-700 text-white placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500 text-sm leading-relaxed"
-                  required
-                />
-              </div>
-
-              {appStatus.type && (
-                <div
-                  className={`p-3.5 rounded-xl text-xs font-medium flex items-start gap-2.5 ${
-                    appStatus.type === 'success'
-                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                      : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
-                  }`}
-                >
-                  {appStatus.type === 'success' ? (
-                    <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400 mt-0.5" />
-                  ) : (
-                    <AlertCircle className="w-4 h-4 shrink-0 text-rose-400 mt-0.5" />
-                  )}
-                  <span>{appStatus.message}</span>
-                </div>
-              )}
-
-              <button
-                type="submit"
-                disabled={isSubmittingApp}
-                className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black font-bold text-sm shadow-lg shadow-emerald-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-              >
-                {isSubmittingApp ? (
-                  <span>Submitting Application...</span>
-                ) : (
-                  <>
-                    <Send className="w-4 h-4" />
-                    <span>SUBMIT APPLICATION TO STAFF</span>
-                  </>
-                )}
-              </button>
-            </form>
-          </div>
+          ))}
         </div>
       )}
 
       {/* Secret Code Redemption Modal */}
       {showRedeemModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in">
-          <div className="bg-neutral-900 border border-neutral-700 rounded-3xl max-w-md w-full p-6 sm:p-8 space-y-6 shadow-2xl relative">
+          <div className="bg-[#111116] border border-neutral-800 rounded-2xl max-w-md w-full p-6 sm:p-7 space-y-5 shadow-2xl relative">
             <button
               onClick={() => setShowRedeemModal(false)}
-              className="absolute top-4 right-4 text-neutral-400 hover:text-white text-xl p-1"
+              className="absolute top-4 right-4 text-neutral-400 hover:text-white text-xl p-1 cursor-pointer"
             >
               ✕
             </button>
 
             <div className="text-center space-y-2">
-              <div className="w-12 h-12 rounded-2xl bg-amber-500/20 border border-amber-500/40 text-amber-400 flex items-center justify-center mx-auto">
-                <KeyRound className="w-6 h-6" />
+              <div className="w-11 h-11 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400 flex items-center justify-center mx-auto">
+                <KeyRound className="w-5 h-5" />
               </div>
-              <h3 className="text-xl font-serif font-bold text-white">Redeem Secret Code</h3>
+              <h3 className="text-xl font-serif font-bold text-white">Redeem Reward Code</h3>
               <p className="text-xs text-neutral-400">
-                Enter the reward code along with your Discord username to claim points and VIP access.
+                Enter your code and Discord username to claim points or VIP passes.
               </p>
             </div>
 
             <form onSubmit={handleRedeemCode} className="space-y-4">
               <div>
-                <label className="block text-xs font-medium text-neutral-300 mb-1.5">
-                  Code
-                </label>
+                <label className="block text-xs font-medium text-neutral-300 mb-1.5">Code</label>
                 <input
                   type="text"
                   value={redeemCode}
                   onChange={(e) => setRedeemCode(e.target.value)}
                   placeholder="e.g. KOP-8824"
-                  className="w-full px-4 py-2.5 rounded-xl bg-neutral-950 border border-neutral-700 text-white font-mono placeholder:text-neutral-600 focus:outline-none focus:border-amber-500 text-sm"
+                  className="w-full px-4 py-2.5 rounded-xl bg-neutral-950 border border-neutral-800 text-white font-mono placeholder:text-neutral-600 focus:outline-none focus:border-amber-500 text-sm"
                   required
                 />
               </div>
@@ -1481,17 +1309,17 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
                   value={discordUser}
                   onChange={(e) => setDiscordUser(e.target.value)}
                   placeholder="e.g. moonwalker_99"
-                  className="w-full px-4 py-2.5 rounded-xl bg-neutral-950 border border-neutral-700 text-white placeholder:text-neutral-600 focus:outline-none focus:border-amber-500 text-sm"
+                  className="w-full px-4 py-2.5 rounded-xl bg-neutral-950 border border-neutral-800 text-white placeholder:text-neutral-600 focus:outline-none focus:border-amber-500 text-sm"
                   required
                 />
               </div>
 
               {redeemStatus.type && (
                 <div
-                  className={`p-3.5 rounded-xl text-xs font-medium flex items-start gap-2.5 ${
+                  className={`p-3 rounded-xl text-xs font-medium flex items-start gap-2.5 ${
                     redeemStatus.type === 'success'
-                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                      : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                      ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
+                      : 'bg-rose-500/15 text-rose-300 border border-rose-500/30'
                   }`}
                 >
                   {redeemStatus.type === 'success' ? (
@@ -1506,14 +1334,14 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
               <button
                 type="submit"
                 disabled={isSubmittingCode}
-                className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-black font-bold text-sm shadow-lg shadow-amber-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
+                className="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
               >
                 {isSubmittingCode ? (
                   <span>Validating Code...</span>
                 ) : (
                   <>
                     <Sparkles className="w-4 h-4" />
-                    <span>CLAIM REWARD</span>
+                    <span>Claim Reward</span>
                   </>
                 )}
               </button>
