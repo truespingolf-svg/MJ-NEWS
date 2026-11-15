@@ -28,6 +28,7 @@ import { getLocalMedia } from '../../services/localMediaRegistry.ts';
 import { downloadProjectPdf } from '../../services/pdfExport.ts';
 import { ensurePageEditableSlots } from '../../utils/newspaperLogic.ts';
 import { getUserPermissions } from '../../utils/permissions.ts';
+import heroStageImg from '../../assets/images/hero_mj_cinematic_stage_1794407118726.jpg';
 
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth, logoutUser } from '../../firebase.ts';
@@ -563,167 +564,203 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
         onEnded={() => setIsBgAudioPlaying(false)}
       />
 
-      {/* Clean 3-Zone Top Navigation Header */}
+      {/* Responsive Top Navigation Header */}
       <header className="border-b border-neutral-800/80 bg-[#09090c]/95 backdrop-blur-xl sticky top-0 z-30">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
-          {/* Zone 1: Clean Single-Line Wordmark */}
-          <button
-            type="button"
-            onClick={() => setActiveNavTab('HOME')}
-            className="text-left cursor-pointer group shrink-0"
-          >
-            <span className="text-lg sm:text-xl font-serif tracking-[0.2em] font-black text-white group-hover:text-red-400 transition-colors uppercase whitespace-nowrap">
-              MJJ RECORDS
-            </span>
-          </button>
-
-          {/* Zone 2: 5 Single-Line Navigation Links */}
-          <nav className="flex items-center gap-1 sm:gap-2 overflow-x-auto no-scrollbar py-1">
-            {(
-              [
-                { id: 'HOME', label: 'HOME' },
-                { id: 'NEWS', label: 'NEWS' },
-                { id: 'CHALLENGES', label: 'CHALLENGES' },
-                { id: 'STREAMING', label: 'STREAMING' },
-                { id: 'NEWSPAPER', label: 'NEWSPAPER' },
-              ] as const
-            ).map((tab) => {
-              const isActive = activeNavTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveNavTab(tab.id)}
-                  className={`px-3 py-2 rounded-lg text-xs font-mono font-bold uppercase tracking-wider transition-all cursor-pointer relative shrink-0 whitespace-nowrap ${
-                    isActive
-                      ? 'text-white bg-neutral-900 border border-red-500/40'
-                      : 'text-neutral-400 hover:text-white hover:bg-neutral-900/50 border border-transparent'
-                  }`}
-                >
-                  <span>{tab.label}</span>
-                  {isActive && (
-                    <span className="absolute bottom-0 left-3 right-3 h-0.5 bg-red-500 rounded-full" />
-                  )}
-                </button>
-              );
-            })}
-          </nav>
-
-          {/* Zone 3: Compact Action Controls */}
-          <div className="flex items-center gap-2 shrink-0">
-            {/* Entrance Music Toggle */}
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+          {/* Main Top Bar */}
+          <div className="h-14 sm:h-16 flex items-center justify-between gap-3">
+            {/* Zone 1: Clean Brand Wordmark */}
             <button
-              onClick={toggleBgAudio}
-              className={`px-2.5 py-1.5 text-xs font-mono font-semibold rounded-lg border transition-all flex items-center gap-1.5 shrink-0 cursor-pointer tabular-nums ${
-                isBgAudioPlaying
-                  ? 'bg-red-950/60 border-red-500/50 text-red-200'
-                  : 'bg-neutral-900 border-neutral-800 text-neutral-400 hover:text-white'
-              }`}
-              title={isBgAudioPlaying ? 'Pause Entrance Music' : 'Play Entrance Music'}
+              type="button"
+              onClick={() => setActiveNavTab('HOME')}
+              className="text-left cursor-pointer group shrink-0"
             >
-              {isBgAudioPlaying ? (
-                <>
-                  <Volume2 className="w-3.5 h-3.5 text-red-400 shrink-0" />
-                  <span className="hidden md:inline text-[11px]">
-                    {formatAudioTime(bgAudioTime.current)} / {formatAudioTime(bgAudioTime.duration)}
-                  </span>
-                </>
-              ) : (
-                <>
-                  <VolumeX className="w-3.5 h-3.5 text-neutral-500 shrink-0" />
-                  <span className="hidden md:inline text-[11px]">Music</span>
-                </>
-              )}
+              <span className="text-base sm:text-xl font-serif tracking-[0.2em] font-black text-white group-hover:text-red-400 transition-colors uppercase whitespace-nowrap">
+                MJJ <span className="text-red-500">RECORDS</span>
+              </span>
             </button>
 
-            {/* Redeem */}
-            <button
-              onClick={() => {
-                setShowRedeemModal(true);
-                setRedeemStatus({ type: null, message: '' });
-              }}
-              className="px-3 py-1.5 text-xs font-bold rounded-lg bg-amber-500 hover:bg-amber-400 text-black transition-all flex items-center gap-1.5 shrink-0 cursor-pointer whitespace-nowrap"
-            >
-              <KeyRound className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Redeem</span>
-            </button>
+            {/* Zone 2 (Desktop xl+ inline nav): 5 Navigation Tabs */}
+            <nav className="hidden xl:flex items-center gap-2">
+              {(
+                [
+                  { id: 'HOME', label: 'HOME' },
+                  { id: 'NEWS', label: 'NEWS' },
+                  { id: 'CHALLENGES', label: 'CHALLENGES' },
+                  { id: 'STREAMING', label: 'STREAMING' },
+                  { id: 'NEWSPAPER', label: 'NEWSPAPER' },
+                ] as const
+              ).map((tab) => {
+                const isActive = activeNavTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveNavTab(tab.id)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold uppercase tracking-wider transition-all cursor-pointer relative shrink-0 whitespace-nowrap ${
+                      isActive
+                        ? 'text-white bg-neutral-900 border border-red-500/40 shadow-sm shadow-red-950/40'
+                        : 'text-neutral-400 hover:text-white hover:bg-neutral-900/60 border border-transparent'
+                    }`}
+                  >
+                    <span>{tab.label}</span>
+                    {isActive && (
+                      <span className="absolute bottom-0 left-3 right-3 h-0.5 bg-red-500 rounded-full" />
+                    )}
+                  </button>
+                );
+              })}
+            </nav>
 
-            {/* User Profile or Sign In */}
-            {currentUserProfile ? (
-              <div className="flex items-center gap-1.5">
-                <button
-                  onClick={() => {
-                    setProfileModalTab('notifications');
-                    setShowProfileModal(true);
-                  }}
-                  className="p-2 rounded-lg bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-neutral-300 relative transition-colors cursor-pointer"
-                  title="Notifications & Inbox"
-                >
-                  <Bell className="w-3.5 h-3.5" />
-                  {currentUserProfile.notifications && currentUserProfile.notifications.length > 0 && (
-                    <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-600 text-white text-[9px] font-bold flex items-center justify-center tabular-nums">
-                      {currentUserProfile.notifications.length}
+            {/* Zone 3: Action Controls */}
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+              {/* Entrance Music Toggle */}
+              <button
+                onClick={toggleBgAudio}
+                className={`px-2 sm:px-2.5 py-1.5 text-xs font-mono font-semibold rounded-lg border transition-all flex items-center gap-1.5 shrink-0 cursor-pointer tabular-nums ${
+                  isBgAudioPlaying
+                    ? 'bg-red-950/60 border-red-500/50 text-red-200'
+                    : 'bg-neutral-900 border-neutral-800 text-neutral-400 hover:text-white'
+                }`}
+                title={isBgAudioPlaying ? 'Pause Entrance Music' : 'Play Entrance Music'}
+              >
+                {isBgAudioPlaying ? (
+                  <>
+                    <Volume2 className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                    <span className="hidden md:inline text-[11px]">
+                      {formatAudioTime(bgAudioTime.current)} / {formatAudioTime(bgAudioTime.duration)}
                     </span>
-                  )}
-                </button>
+                  </>
+                ) : (
+                  <>
+                    <VolumeX className="w-3.5 h-3.5 text-neutral-500 shrink-0" />
+                    <span className="hidden md:inline text-[11px]">Music</span>
+                  </>
+                )}
+              </button>
 
+              {/* Redeem */}
+              <button
+                onClick={() => {
+                  setShowRedeemModal(true);
+                  setRedeemStatus({ type: null, message: '' });
+                }}
+                className="px-2.5 sm:px-3 py-1.5 text-xs font-bold rounded-lg bg-amber-500 hover:bg-amber-400 text-black transition-all flex items-center gap-1 shrink-0 cursor-pointer whitespace-nowrap"
+              >
+                <KeyRound className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Redeem</span>
+              </button>
+
+              {/* User Profile or Sign In */}
+              {currentUserProfile ? (
+                <div className="flex items-center gap-1 sm:gap-1.5">
+                  <button
+                    onClick={() => {
+                      setProfileModalTab('notifications');
+                      setShowProfileModal(true);
+                    }}
+                    className="p-1.5 sm:p-2 rounded-lg bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-neutral-300 relative transition-colors cursor-pointer"
+                    title="Notifications & Inbox"
+                  >
+                    <Bell className="w-3.5 h-3.5" />
+                    {currentUserProfile.notifications && currentUserProfile.notifications.length > 0 && (
+                      <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-600 text-white text-[9px] font-bold flex items-center justify-center tabular-nums">
+                        {currentUserProfile.notifications.length}
+                      </span>
+                    )}
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setProfileModalTab('profile');
+                      setShowProfileModal(true);
+                    }}
+                    className="px-2 sm:px-2.5 py-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 transition-colors flex items-center gap-1.5 cursor-pointer"
+                  >
+                    {currentUserProfile.photoURL ? (
+                      <img
+                        src={currentUserProfile.photoURL}
+                        alt=""
+                        className="w-5 h-5 rounded-full object-cover"
+                      />
+                    ) : (
+                      <div className="w-5 h-5 rounded-full bg-red-600 text-white flex items-center justify-center font-bold text-[10px]">
+                        {currentUserProfile.displayName?.[0]?.toUpperCase() || 'U'}
+                      </div>
+                    )}
+                    <span className="text-xs font-semibold text-neutral-200 max-w-[80px] truncate hidden md:inline">
+                      {currentUserProfile.discordUser || currentUserProfile.discordUsername
+                        ? `@${currentUserProfile.discordUser || currentUserProfile.discordUsername}`
+                        : currentUserProfile.displayName || 'Player'}
+                    </span>
+                    <span className="text-[10px] font-mono font-bold bg-amber-500 text-black px-1.5 py-0.5 rounded tabular-nums">
+                      {(currentUserProfile.points || 0).toLocaleString()}
+                    </span>
+                  </button>
+                </div>
+              ) : (
                 <button
-                  onClick={() => {
-                    setProfileModalTab('profile');
-                    setShowProfileModal(true);
-                  }}
-                  className="px-2.5 py-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 transition-colors flex items-center gap-2 cursor-pointer"
+                  onClick={() => setShowAuthModal(true)}
+                  className="px-2.5 sm:px-3 py-1.5 text-xs font-bold rounded-lg bg-red-600 hover:bg-red-500 text-white transition-all flex items-center gap-1 cursor-pointer whitespace-nowrap"
                 >
-                  {currentUserProfile.photoURL ? (
-                    <img
-                      src={currentUserProfile.photoURL}
-                      alt=""
-                      className="w-5 h-5 rounded-full object-cover"
-                    />
-                  ) : (
-                    <div className="w-5 h-5 rounded-full bg-red-600 text-white flex items-center justify-center font-bold text-[10px]">
-                      {currentUserProfile.displayName?.[0]?.toUpperCase() || 'U'}
-                    </div>
-                  )}
-                  <span className="text-xs font-semibold text-neutral-200 max-w-[85px] truncate hidden sm:inline">
-                    {currentUserProfile.discordUser || currentUserProfile.discordUsername
-                      ? `@${currentUserProfile.discordUser || currentUserProfile.discordUsername}`
-                      : currentUserProfile.displayName || 'Player'}
-                  </span>
-                  <span className="text-[10px] font-mono font-bold bg-amber-500 text-black px-1.5 py-0.5 rounded tabular-nums">
-                    {(currentUserProfile.points || 0).toLocaleString()}
-                  </span>
+                  <LogIn className="w-3.5 h-3.5" />
+                  <span>Sign In</span>
                 </button>
-              </div>
-            ) : (
-              <button
-                onClick={() => setShowAuthModal(true)}
-                className="px-3 py-1.5 text-xs font-bold rounded-lg bg-red-600 hover:bg-red-500 text-white transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
-              >
-                <LogIn className="w-3.5 h-3.5" />
-                <span>Sign In</span>
-              </button>
-            )}
+              )}
 
-            {userPerms.canAccessNewspaperStudio && onOpenNewspaperStudio && (
-              <button
-                type="button"
-                onClick={onOpenNewspaperStudio}
-                className="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-neutral-900 hover:bg-neutral-800 text-amber-300 border border-amber-500/30 transition-colors flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
-                title="Open Newspaper Studio"
-              >
-                <Newspaper className="w-3.5 h-3.5" />
-                <span className="hidden lg:inline">Studio</span>
-              </button>
-            )}
+              {userPerms.canAccessNewspaperStudio && onOpenNewspaperStudio && (
+                <button
+                  type="button"
+                  onClick={onOpenNewspaperStudio}
+                  className="px-2 sm:px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-neutral-900 hover:bg-neutral-800 text-amber-300 border border-amber-500/30 transition-colors flex items-center gap-1 cursor-pointer whitespace-nowrap"
+                  title="Open Newspaper Studio"
+                >
+                  <Newspaper className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Studio</span>
+                </button>
+              )}
 
-            <button
-              onClick={onOpenStaffPortal}
-              className="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-neutral-900 hover:bg-neutral-800 text-neutral-300 border border-neutral-800 transition-colors flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
-              title="Unlock Staff Administration Studio"
-            >
-              <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
-              <span className="hidden lg:inline">Staff Unlock</span>
-            </button>
+              <button
+                onClick={onOpenStaffPortal}
+                className="px-2 sm:px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-neutral-900 hover:bg-neutral-800 text-neutral-300 border border-neutral-800 transition-colors flex items-center gap-1 cursor-pointer whitespace-nowrap"
+                title="Unlock Staff Administration Studio"
+              >
+                <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
+                <span className="hidden sm:inline">Staff</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Sub Row for Mobile/Tablet (< xl): Dedicated Navigation Tabs Row */}
+          <div className="xl:hidden border-t border-neutral-800/70 py-2 -mx-3 px-3 sm:-mx-6 sm:px-6">
+            <nav className="flex items-center justify-start sm:justify-center gap-1.5 overflow-x-auto scrollbar-none py-0.5">
+              {(
+                [
+                  { id: 'HOME', label: 'HOME' },
+                  { id: 'NEWS', label: 'NEWS' },
+                  { id: 'CHALLENGES', label: 'CHALLENGES' },
+                  { id: 'STREAMING', label: 'STREAMING' },
+                  { id: 'NEWSPAPER', label: 'NEWSPAPER' },
+                ] as const
+              ).map((tab) => {
+                const isActive = activeNavTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveNavTab(tab.id)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold uppercase tracking-wider transition-all cursor-pointer relative shrink-0 whitespace-nowrap ${
+                      isActive
+                        ? 'text-white bg-neutral-900 border border-red-500/40 shadow-sm shadow-red-950/40'
+                        : 'text-neutral-400 hover:text-white hover:bg-neutral-900/50 border border-transparent'
+                    }`}
+                  >
+                    <span>{tab.label}</span>
+                    {isActive && (
+                      <span className="absolute bottom-0 left-3 right-3 h-0.5 bg-red-500 rounded-full" />
+                    )}
+                  </button>
+                );
+              })}
+            </nav>
           </div>
         </div>
       </header>
@@ -735,7 +772,7 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
           <section className="relative rounded-2xl overflow-hidden border border-red-900/50 bg-[#0b0709] group">
             <div className="absolute inset-0">
               <img
-                src="/src/assets/images/hero_mj_cinematic_stage_1794407118726.jpg"
+                src={heroStageImg}
                 alt="Michael Jackson Stage Concert"
                 className="w-full h-full object-cover object-center brightness-[0.38] contrast-[1.15] transition-transform duration-700 group-hover:scale-[1.03]"
               />
@@ -861,39 +898,48 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
             </div>
           </section>
 
-          {/* HOME SUB-TABS BAR — Keeps Home compact instead of a massive vertical scroll */}
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-neutral-800/80 pb-3">
-            <div className="flex items-center gap-1.5 bg-[#0d0d12] p-1 rounded-xl border border-neutral-800/90 overflow-x-auto no-scrollbar">
-              {(
-                [
-                  { id: 'stage', label: 'Event Stage', icon: Calendar },
-                  { id: 'challenges', label: 'Challenges', icon: Trophy },
-                  { id: 'leaderboard', label: 'Leaderboard (2h Vote)', icon: Sparkles },
-                  { id: 'news', label: 'Latest News', icon: Newspaper },
-                ] as const
-              ).map((item) => {
-                const Icon = item.icon;
-                const active = homeSubTab === item.id;
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => setHomeSubTab(item.id)}
-                    className={`px-3.5 py-2 rounded-lg text-xs font-mono font-bold transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
-                      active
-                        ? 'bg-red-600 text-white shadow-sm'
-                        : 'text-neutral-400 hover:text-white hover:bg-neutral-900'
-                    }`}
-                  >
-                    <Icon className="w-3.5 h-3.5" />
-                    <span>{item.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="text-[11px] font-mono text-neutral-500 hidden sm:block">
-              Switch tabs to view stage events, contests, leaderboard, or news
+          {/* HOME SUB-TABS BAR — Responsive, never clipped or cut off */}
+          <div className="border-b border-neutral-800/80 pb-3">
+            <div className="w-full bg-[#0d0d12] p-1.5 rounded-2xl border border-neutral-800/90">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-1.5 sm:gap-2">
+                {(
+                  [
+                    { id: 'stage', label: 'Event Stage', icon: Calendar, badge: 'Live' },
+                    { id: 'challenges', label: 'Challenges', icon: Trophy, badge: null },
+                    { id: 'leaderboard', label: 'Leaderboard', icon: Sparkles, badge: '2h Vote' },
+                    { id: 'news', label: 'Latest News', icon: Newspaper, badge: null },
+                  ] as const
+                ).map((item) => {
+                  const Icon = item.icon;
+                  const active = homeSubTab === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setHomeSubTab(item.id)}
+                      className={`px-3 sm:px-4 py-2.5 rounded-xl text-xs font-mono font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                        active
+                          ? 'bg-red-600 text-white shadow-md shadow-red-950/60 ring-1 ring-red-400/50'
+                          : 'text-neutral-400 hover:text-white hover:bg-neutral-900/80'
+                      }`}
+                    >
+                      <Icon className="w-4 h-4 shrink-0" />
+                      <span className="whitespace-nowrap">{item.label}</span>
+                      {item.badge && (
+                        <span
+                          className={`text-[10px] font-sans px-1.5 py-0.5 rounded-md font-semibold shrink-0 ${
+                            active
+                              ? 'bg-black/40 text-red-200'
+                              : 'bg-neutral-800 text-neutral-300'
+                          }`}
+                        >
+                          {item.badge}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
 
@@ -952,44 +998,58 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
                   </button>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                  {newsArticles.slice(0, 3).map((art) => (
-                    <div
-                      key={art.id}
-                      onClick={() => setActiveNavTab('NEWS')}
-                      className="interactive-card bg-[#0d0d11] border border-neutral-800/90 hover:border-red-500/40 rounded-2xl overflow-hidden flex flex-col justify-between group cursor-pointer"
-                    >
-                      <div className="aspect-[16/10] bg-neutral-900 overflow-hidden">
-                        <img
-                          src={art.mainImage || '/src/assets/images/hero_mj_cinematic_stage_1794407118726.jpg'}
-                          alt=""
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                        />
-                      </div>
-
-                      <div className="p-4 space-y-2 flex-1 flex flex-col justify-between">
-                        <div className="space-y-1.5">
-                          <div className="text-[11px] font-mono text-neutral-400 flex items-center gap-2">
-                            <span className="text-red-400 font-bold uppercase">{art.category}</span>
-                            <span aria-hidden="true">·</span>
-                            <span>{new Date(art.publishedDate).toLocaleDateString()}</span>
-                          </div>
-                          <h4 className="font-serif font-bold text-base text-white group-hover:text-amber-300 transition-colors line-clamp-2">
-                            {art.headline}
-                          </h4>
-                          <p className="text-xs text-neutral-400 line-clamp-2 leading-relaxed">
-                            {art.shortDescription}
-                          </p>
-                        </div>
-
-                        <div className="pt-2.5 mt-2 border-t border-neutral-800/80 flex items-center justify-between text-xs font-semibold text-red-400">
-                          <span>Read Story</span>
-                          <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
-                        </div>
-                      </div>
+                {newsArticles.length === 0 ? (
+                  <div className="p-10 sm:p-14 text-center rounded-2xl bg-[#0d0d12] border border-dashed border-neutral-800 space-y-3">
+                    <div className="w-12 h-12 rounded-xl bg-neutral-900 border border-neutral-800 flex items-center justify-center mx-auto text-neutral-500">
+                      <Newspaper className="w-6 h-6" />
                     </div>
-                  ))}
-                </div>
+                    <div className="space-y-1">
+                      <h3 className="font-serif font-bold text-base text-white">No Press Dispatches Published Yet</h3>
+                      <p className="text-xs font-mono text-neutral-400 max-w-md mx-auto leading-relaxed">
+                        Official MJJ Records press bulletins and release notes will appear here once published by the News Desk.
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                    {newsArticles.slice(0, 3).map((art) => (
+                      <div
+                        key={art.id}
+                        onClick={() => setActiveNavTab('NEWS')}
+                        className="interactive-card bg-[#0d0d11] border border-neutral-800/90 hover:border-red-500/40 rounded-2xl overflow-hidden flex flex-col justify-between group cursor-pointer"
+                      >
+                        <div className="aspect-[16/10] bg-neutral-900 overflow-hidden">
+                          <img
+                            src={art.mainImage || heroStageImg}
+                            alt=""
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                          />
+                        </div>
+
+                        <div className="p-4 space-y-2 flex-1 flex flex-col justify-between">
+                          <div className="space-y-1.5">
+                            <div className="text-[11px] font-mono text-neutral-400 flex items-center gap-2">
+                              <span className="text-red-400 font-bold uppercase">{art.category}</span>
+                              <span aria-hidden="true">·</span>
+                              <span>{new Date(art.publishedDate).toLocaleDateString()}</span>
+                            </div>
+                            <h4 className="font-serif font-bold text-base text-white group-hover:text-amber-300 transition-colors line-clamp-2">
+                              {art.headline}
+                            </h4>
+                            <p className="text-xs text-neutral-400 line-clamp-2 leading-relaxed">
+                              {art.shortDescription}
+                            </p>
+                          </div>
+
+                          <div className="pt-2.5 mt-2 border-t border-neutral-800/80 flex items-center justify-between text-xs font-semibold text-red-400">
+                            <span>Read Story</span>
+                            <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>

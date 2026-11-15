@@ -1,79 +1,38 @@
 import { NewspaperProject } from '../types/newspaper.ts';
 import {
-  subscribeProjects,
+  getReconciledProjects,
+  readProjectsLocalCache,
   saveProjectFirestore,
   deleteProjectFirestore,
   deleteAllProjectsFirestore,
 } from './firestoreStorage.ts';
 
-const STORAGE_KEY = 'mj_newspaper_studio_projects_v1';
 const ACTIVE_PROJECT_KEY = 'mj_newspaper_studio_active_id_v1';
 
-let cachedProjects: NewspaperProject[] = [];
-
-// Initialize memory cache from localStorage if available
-try {
-  const raw = localStorage.getItem(STORAGE_KEY);
-  if (raw) {
-    cachedProjects = JSON.parse(raw);
-  }
-} catch {
-  // ignore
-}
-
-// Start real-time Firestore subscriber to keep cachedProjects in sync across all devices
-subscribeProjects((projects) => {
-  cachedProjects = projects;
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(projects));
-  } catch {
-    // ignore
-  }
-});
-
 /**
- * Loads all saved projects from real-time cache / storage.
+ * Loads all saved projects from reconciled local/Firestore cache without
+ * attaching competing top-level listeners.
  */
 export function loadAllProjects(): NewspaperProject[] {
-  if (cachedProjects && cachedProjects.length > 0) {
-    return cachedProjects;
+  const reconciled = getReconciledProjects();
+  if (reconciled && reconciled.length > 0) {
+    return reconciled;
   }
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        cachedProjects = parsed;
-        return parsed;
-      }
-    }
-  } catch {
-    // ignore
-  }
-  cachedProjects = [];
-  return [];
+  return readProjectsLocalCache();
 }
 
 /**
- * Saves or updates a project to Firebase Firestore and local cache.
+ * Saves or updates a project immediately to local cache and asynchronously to Firebase Firestore.
  */
-export function saveProject(project: NewspaperProject): boolean {
-  try {
-    const remaining = cachedProjects.filter((p) => p.id !== project.id);
-    const updated = {
-      ...project,
-      updatedAt: new Date().toISOString(),
-    };
-    cachedProjects = [updated, ...remaining];
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(cachedProjects));
-    localStorage.setItem(ACTIVE_PROJECT_KEY, project.id);
-    // Persist asynchronously to Firebase Firestore
-    saveProjectFirestore(updated).catch((err) => console.error('Firestore save project error:', err));
-    return true;
-  } catch (err) {
-    console.error('Failed to save project:', err);
-    return false;
-  }
+export function saveProject(project: NewspaperProject): NewspaperProject {
+  const updated: NewspaperProject = {
+    ...project,
+    updatedAt: new Date().toISOString(),
+  };
+  saveProjectFirestore(updated).catch((err) =>
+    console.error('Firestore save project error:', err)
+  );
+  return updated;
 }
 
 /**
@@ -87,7 +46,7 @@ export function getProjectById(id: string): NewspaperProject | null {
 /**
  * Gets the last active project or the first project available.
  */
-export function getActiveProject(): NewspaperProject {
+export function getActiveProject(): NewspaperProject | null {
   const activeId = localStorage.getItem(ACTIVE_PROJECT_KEY);
   const all = loadAllProjects();
   if (activeId) {
@@ -101,7 +60,11 @@ export function getActiveProject(): NewspaperProject {
  * Sets the active project ID.
  */
 export function setActiveProjectId(id: string) {
-  localStorage.setItem(ACTIVE_PROJECT_KEY, id);
+  try {
+    localStorage.setItem(ACTIVE_PROJECT_KEY, id);
+  } catch {
+    // ignore
+  }
 }
 
 /**
@@ -114,56 +77,49 @@ export function duplicateProject(projectId: string): NewspaperProject | null {
   const now = new Date().toISOString();
   const newProject: NewspaperProject = {
     ...original,
-    id: `project-${Date.now()}`,
+    id: `project-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     title: `${original.title} (Copy)`,
     createdAt: now,
     updatedAt: now,
     pages: original.pages.map((p, idx) => ({
       ...p,
-      id: `page-${Date.now()}-${idx}`,
+      id: `page-${Date.now()}-${Math.random().toString(36).slice(2, 5)}-${idx}`,
     })),
   };
 
-  saveProject(newProject);
-  return newProject;
+  return saveProject(newProject);
 }
 
 /**
- * Deletes a project by ID and syncs to Firestore.
+ * Deletes a project by ID and syncs deletion cleanly to Firestore.
  */
 export function deleteProject(projectId: string): NewspaperProject[] {
-  cachedProjects = cachedProjects.filter((p) => p.id !== projectId);
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(cachedProjects));
-  } catch {
-    // ignore
-  }
-  deleteProjectFirestore(projectId).catch((err) => console.error('Firestore delete project error:', err));
+  const remaining = loadAllProjects().filter((p) => p.id !== projectId);
+  deleteProjectFirestore(projectId).catch((err) =>
+    console.error('Firestore delete project error:', err)
+  );
 
-  if (cachedProjects.length === 0) {
-    localStorage.removeItem(ACTIVE_PROJECT_KEY);
+  if (remaining.length === 0) {
+    try {
+      localStorage.removeItem(ACTIVE_PROJECT_KEY);
+    } catch {
+      // ignore
+    }
     return [];
   }
 
   const activeId = localStorage.getItem(ACTIVE_PROJECT_KEY);
-  if (activeId === projectId && cachedProjects.length > 0) {
-    setActiveProjectId(cachedProjects[0].id);
+  if (activeId === projectId && remaining.length > 0) {
+    setActiveProjectId(remaining[0].id);
   }
-  return cachedProjects;
+  return remaining;
 }
 
 /**
- * Deletes ALL newspaper projects from local cache & Firestore.
+ * Deletes ALL newspaper projects from local cache & Firestore cleanly.
  */
 export async function deleteAllProjects(): Promise<NewspaperProject[]> {
-  const existingIds = cachedProjects.map((p) => p.id);
-  cachedProjects = [];
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
-    localStorage.removeItem(ACTIVE_PROJECT_KEY);
-  } catch {
-    // ignore
-  }
+  const existingIds = loadAllProjects().map((p) => p.id);
   await deleteAllProjectsFirestore(existingIds).catch((err) =>
     console.error('Firestore delete all projects error:', err)
   );
@@ -181,5 +137,5 @@ export function exportProjectToJson(project: NewspaperProject) {
   a.href = url;
   a.download = `${project.title.toLowerCase().replace(/[^a-z0-9]/g, '_')}_newspaper.json`;
   a.click();
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
 }

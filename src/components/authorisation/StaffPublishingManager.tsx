@@ -129,10 +129,22 @@ export const StaffPublishingManager: React.FC<StaffPublishingManagerProps> = ({
     const proj = toProjectObject(item);
     if (!proj) return;
     setPdfProject(proj);
+    setStatusMsg('Preparing PDF export...');
     setTimeout(async () => {
-      await downloadProjectPdf(proj, pdfCaptureRef.current);
-      setPdfProject(null);
-    }, 150);
+      try {
+        const ok = await downloadProjectPdf(proj, pdfCaptureRef.current, (msg) =>
+          setStatusMsg(msg)
+        );
+        if (ok) {
+          setStatusMsg(`PDF downloaded for "${proj.title}".`);
+        } else {
+          setStatusMsg('PDF export failed. Please try again.');
+        }
+      } finally {
+        setPdfProject(null);
+        setTimeout(() => setStatusMsg(''), 3500);
+      }
+    }, 320);
   };
 
   const handleDeletePublishedArchiveDoc = async (id: string) => {

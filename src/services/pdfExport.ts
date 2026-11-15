@@ -1,8 +1,7 @@
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import { NewspaperProject } from '../types/newspaper.ts';
-
-const MODERN_COLOR_RE = /(oklch|oklab|lch|lab|color-mix|color\()/i;
+import { sanitizeCssModernColors, hasModernCssColors } from '../utils/cssSanitize.ts';
 
 /**
  * Resolves any modern CSS color expression (oklch, oklab, color-mix, etc.)
@@ -13,13 +12,13 @@ function resolveColorToRgb(
   value: string,
   fallback: string
 ): string {
-  if (!value || !MODERN_COLOR_RE.test(value)) return value;
+  if (!value || !hasModernCssColors(value)) return value;
   if (!ctx) return fallback;
   try {
     ctx.fillStyle = fallback;
     ctx.fillStyle = value;
     const resolved = ctx.fillStyle;
-    if (typeof resolved === 'string' && !MODERN_COLOR_RE.test(resolved)) {
+    if (typeof resolved === 'string' && !hasModernCssColors(resolved)) {
       return resolved;
     }
   } catch {
@@ -29,8 +28,59 @@ function resolveColorToRgb(
 }
 
 /**
+ * Collects all same-origin stylesheets (both <style> and Vite production <link rel="stylesheet">)
+ * and sanitizes any Tailwind v4 oklch/oklab/color-mix rules so html2canvas can parse them cleanly.
+ */
+async function collectSanitizedStylesheets(): Promise<string> {
+  const cssParts: string[] = [];
+
+  for (const sheet of Array.from(document.styleSheets)) {
+    const href = sheet.href;
+    let isSameOrigin = true;
+    if (href) {
+      try {
+        isSameOrigin = new URL(href, window.location.href).origin === window.location.origin;
+      } catch {
+        isSameOrigin = false;
+      }
+    }
+
+    if (!isSameOrigin) {
+      continue;
+    }
+
+    try {
+      const rules = sheet.cssRules;
+      if (rules && rules.length > 0) {
+        const text = Array.from(rules)
+          .map((r) => r.cssText)
+          .join('\n');
+        cssParts.push(sanitizeCssModernColors(text, '#2b2926'));
+        continue;
+      }
+    } catch {
+      // SecurityError or empty; try fetching same-origin CSS file below
+    }
+
+    if (href) {
+      try {
+        const resp = await fetch(href);
+        if (resp.ok) {
+          const raw = await resp.text();
+          cssParts.push(sanitizeCssModernColors(raw, '#2b2926'));
+        }
+      } catch {
+        // ignore unreachable sheet
+      }
+    }
+  }
+
+  return cssParts.join('\n');
+}
+
+/**
  * Normalizes all modern CSS colors (like oklch / oklab / color-mix in Tailwind v4)
- * to standard RGB/Hex on cloned DOM nodes and strips CSS color functions from <style> tags.
+ * to standard RGB/Hex on cloned DOM nodes.
  */
 function sanitizeNodeColors(root: HTMLElement, ctx: CanvasRenderingContext2D | null) {
   const elements = [root, ...Array.from(root.querySelectorAll<HTMLElement>('*'))];
@@ -51,16 +101,16 @@ function sanitizeNodeColors(root: HTMLElement, ctx: CanvasRenderingContext2D | n
 
     for (const prop of props) {
       const val = (computed as any)[prop];
-      if (typeof val === 'string' && MODERN_COLOR_RE.test(val)) {
+      if (typeof val === 'string' && hasModernCssColors(val)) {
         const fallback = prop.toLowerCase().includes('background') ? '#faf7f0' : '#1a1918';
         (el.style as any)[prop] = resolveColorToRgb(ctx, val, fallback);
       }
     }
 
-    if (typeof computed.boxShadow === 'string' && MODERN_COLOR_RE.test(computed.boxShadow)) {
+    if (typeof computed.boxShadow === 'string' && hasModernCssColors(computed.boxShadow)) {
       el.style.boxShadow = 'none';
     }
-    if (typeof computed.backgroundImage === 'string' && MODERN_COLOR_RE.test(computed.backgroundImage)) {
+    if (typeof computed.backgroundImage === 'string' && hasModernCssColors(computed.backgroundImage)) {
       el.style.backgroundImage = 'none';
     }
   }
@@ -123,7 +173,7 @@ function triggerSinglePdfDownload(blob: Blob, filename: string) {
       link.parentNode.removeChild(link);
     }
     URL.revokeObjectURL(url);
-  }, 8000);
+  }, 30000);
 }
 
 /**
@@ -160,9 +210,9 @@ export async function downloadProjectPdf(
       throw new Error('No printable pages found.');
     }
 
-    if (containerElement) {
-      await waitForImagesAndFonts(containerElement);
-    }
+    const searchRoot = containerElement || targetPages[0].parentElement || document.body;
+    await waitForImagesAndFonts(searchRoot);
+    const sanitizedCss = await collectSanitizedStylesheets();
 
     const pdf = new jsPDF({
       orientation: 'portrait',
@@ -193,38 +243,67 @@ export async function downloadProjectPdf(
           allowTaint: false,
           imageTimeout: 10000,
           logging: false,
+          scrollX: 0,
+          scrollY: 0,
           backgroundColor: '#faf7f0',
           onclone: (clonedDoc, clonedTarget) => {
-            // Strip Tailwind v4 modern CSS color functions from cloned style sheets
-            clonedDoc.querySelectorAll('style').forEach((s) => {
-              if (s.textContent && MODERN_COLOR_RE.test(s.textContent)) {
-                s.textContent = s.textContent
-                  .replace(/oklch\([^)]+\)/gi, '#2b2926')
-                  .replace(/oklab\([^)]+\)/gi, '#2b2926')
-                  .replace(/color-mix\([^)]+\)/gi, '#2b2926')
-                  .replace(/lch\([^)]+\)/gi, '#2b2926')
-                  .replace(/lab\([^)]+\)/gi, '#2b2926');
+            // Remove same-origin <link rel="stylesheet"> in clone so Tailwind v4 oklch/oklab/color-mix
+            // in built CSS bundles never hits html2canvas's color parser, and inject our sanitized CSS.
+            clonedDoc.querySelectorAll('link[rel="stylesheet"]').forEach((lnk) => {
+              const href = lnk.getAttribute('href') || '';
+              if (!href) return;
+              try {
+                const url = new URL(href, window.location.href);
+                if (url.origin === window.location.origin) {
+                  lnk.remove();
+                }
+              } catch {
+                lnk.remove();
               }
             });
 
-            // Force ancestor containers to full opacity and visible layout so capture is never blank
+            // Sanitize existing inline <style> tags using balanced-parenthesis color replacement
+            clonedDoc.querySelectorAll('style').forEach((s) => {
+              if (s.textContent && (hasModernCssColors(s.textContent) || s.textContent.includes('@property'))) {
+                s.textContent = sanitizeCssModernColors(s.textContent, '#2b2926');
+              }
+            });
+
+            if (sanitizedCss) {
+              const injectedStyle = clonedDoc.createElement('style');
+              injectedStyle.setAttribute('data-pdf-sanitized', 'true');
+              injectedStyle.textContent = sanitizedCss;
+              clonedDoc.head.appendChild(injectedStyle);
+            }
+
+            // Reposition any offscreen wrapper cleanly inside the cloned document
             let anc: HTMLElement | null = clonedTarget;
             while (anc && anc !== clonedDoc.body) {
               anc.style.opacity = '1';
               anc.style.visibility = 'visible';
+              anc.style.transform = 'none';
+              if (anc.style.left && anc.style.left.startsWith('-')) {
+                anc.style.position = 'static';
+                anc.style.left = '0px';
+                anc.style.top = '0px';
+              }
+              if (anc.classList.contains('fixed') && anc.className.includes('-12000px')) {
+                anc.style.position = 'static';
+                anc.style.left = '0px';
+                anc.style.top = '0px';
+              }
               anc = anc.parentElement;
             }
 
+            // Guard against any broken images in clone aborting capture
             if (clonedTarget) {
+              clonedTarget.querySelectorAll<HTMLImageElement>('img').forEach((imgEl) => {
+                if (!imgEl.complete || imgEl.naturalWidth === 0) {
+                  imgEl.style.display = 'none';
+                }
+              });
               sanitizeNodeColors(clonedTarget, colorCtx);
             }
-            const extraTargets = clonedDoc.querySelectorAll<HTMLElement>(
-              '.export-page-target, .newsprint-paper'
-            );
-            extraTargets.forEach((t) => {
-              t.style.opacity = '1';
-              sanitizeNodeColors(t, colorCtx);
-            });
           },
         });
 

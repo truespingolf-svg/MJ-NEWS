@@ -81,7 +81,7 @@ export function createDefaultImagePlaceholders(pageId: string): {
  * Generates initial Front Cover Page with authentic broadsheet sections
  */
 export function createFrontCoverPage(pageNumber: number = 1): NewspaperPage {
-  const pageId = `page-${Date.now()}-cover`;
+  const pageId = `page-${Date.now()}-${Math.random().toString(36).slice(2, 6)}-cover`;
   const images = createDefaultImagePlaceholders(pageId);
   images.image1.label = 'Front Page Lead Photograph';
   images.image2.label = 'Special Feature Photograph';
@@ -584,7 +584,7 @@ export function createInteriorPage(
   layoutId: PageLayoutId,
   pageNumber: number
 ): NewspaperPage {
-  const pageId = `page-${Date.now()}-${pageNumber}`;
+  const pageId = `page-${Date.now()}-${Math.random().toString(36).slice(2, 6)}-${pageNumber}`;
   const images = createDefaultImagePlaceholders(pageId);
   const texts = createInteriorPageTexts(pageId, layoutId, pageNumber);
 
@@ -613,7 +613,7 @@ export function createNewProject(title: string = 'Untitled MJJ Broadsheet'): New
   const now = new Date().toISOString();
 
   return {
-    id: `project-${Date.now()}`,
+    id: `project-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     title,
     subtitle: 'Commemorative Newspaper Edition',
     createdAt: now,
@@ -633,7 +633,7 @@ export function duplicatePage(
   if (targetIndex === -1) return project;
 
   const originalPage = project.pages[targetIndex];
-  const newPageId = `page-${Date.now()}-dup`;
+  const newPageId = `page-${Date.now()}-${Math.random().toString(36).slice(2, 6)}-dup`;
 
   // Deep clone texts with new IDs
   const clonedTexts: Record<string, TextElement> = {};

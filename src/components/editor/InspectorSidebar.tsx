@@ -81,7 +81,7 @@ export const InspectorSidebar: React.FC<InspectorSidebarProps> = ({
 
     setIsOptimizing(true);
     try {
-      const optimizedDataUrl = await optimizeNewspaperImage(file, 1400, 0.82);
+      const optimizedDataUrl = await optimizeNewspaperImage(file, 1000, 0.78);
       if (optimizedDataUrl) {
         onUpdateImage(selectedImageSlot, {
           url: optimizedDataUrl,

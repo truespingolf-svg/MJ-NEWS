@@ -18,6 +18,19 @@ import { NewspaperProject } from '../types/newspaper.ts';
 import { processMediaForStorage } from './localMediaRegistry.ts';
 import { sanitizeForFirestore, estimateJsonBytes } from '../utils/firestoreSanitize.ts';
 import { getGlobalVoteCooldown, formatCooldownDuration } from '../utils/votingCooldown.ts';
+import { compactProjectForFirestore } from '../utils/imageOptimizer.ts';
+import {
+  createProjectSyncState,
+  markLocalSaveStarted,
+  markLocalSaveSettled,
+  markLocalDeleteStarted,
+  markLocalDeleteSettled,
+  markDeleteAllStarted,
+  markDeleteAllSettled,
+  shouldAbortPendingWrite,
+  reconcileProjectsSnapshot,
+  parseIsoMs,
+} from '../utils/projectSync.ts';
 
 export enum OperationType {
   CREATE = 'create',
@@ -70,6 +83,39 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
 const LOCAL_STORAGE_BACKUP_KEY = 'mj_newspaper_studio_projects_v1';
 const ACTIVE_PROJECT_KEY = 'mj_newspaper_studio_active_id_v1';
 
+const projectSyncState = createProjectSyncState();
+let lastRemoteProjects: NewspaperProject[] = [];
+
+function writeProjectsLocalCache(list: NewspaperProject[]) {
+  try {
+    localStorage.setItem(LOCAL_STORAGE_BACKUP_KEY, JSON.stringify(list));
+  } catch {
+    // ignore storage quota errors
+  }
+}
+
+export function readProjectsLocalCache(): NewspaperProject[] {
+  try {
+    const raw = localStorage.getItem(LOCAL_STORAGE_BACKUP_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch {
+    // ignore
+  }
+  return [];
+}
+
+export function getReconciledProjects(): NewspaperProject[] {
+  if (lastRemoteProjects.length > 0 || projectSyncState.pendingSaves.size > 0 || projectSyncState.pendingDeletes.size > 0) {
+    const reconciled = reconcileProjectsSnapshot(lastRemoteProjects, projectSyncState);
+    writeProjectsLocalCache(reconciled);
+    return reconciled;
+  }
+  return readProjectsLocalCache();
+}
+
 export function createStarterProject(): NewspaperProject {
   return null as any;
 }
@@ -82,34 +128,23 @@ export function subscribeProjects(callback: (projects: NewspaperProject[]) => vo
   const colRef = collection(db, 'projects');
   const unsubscribe = onSnapshot(
     colRef,
-    async (snapshot) => {
-      if (snapshot.empty) {
-        localStorage.setItem(LOCAL_STORAGE_BACKUP_KEY, JSON.stringify([]));
-        callback([]);
-      } else {
-        const list: NewspaperProject[] = [];
-        snapshot.forEach((d) => {
-          list.push(d.data() as NewspaperProject);
-        });
-        list.sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime());
-        try {
-          localStorage.setItem(LOCAL_STORAGE_BACKUP_KEY, JSON.stringify(list));
-        } catch {
-          // ignore storage quota
+    (snapshot) => {
+      const remoteList: NewspaperProject[] = [];
+      snapshot.forEach((d) => {
+        const data = d.data() as NewspaperProject;
+        if (data && data.id) {
+          remoteList.push(data);
         }
-        callback(list);
-      }
+      });
+      lastRemoteProjects = remoteList;
+      const reconciled = reconcileProjectsSnapshot(remoteList, projectSyncState);
+      writeProjectsLocalCache(reconciled);
+      callback(reconciled);
     },
     (err) => {
       handleFirestoreError(err, OperationType.LIST, 'projects');
-      // Fallback to local cache if offline
-      try {
-        const raw = localStorage.getItem(LOCAL_STORAGE_BACKUP_KEY);
-        if (raw) callback(JSON.parse(raw));
-        else callback([]);
-      } catch {
-        callback([]);
-      }
+      const fallback = getReconciledProjects();
+      callback(fallback);
     }
   );
   return unsubscribe;
@@ -117,55 +152,75 @@ export function subscribeProjects(callback: (projects: NewspaperProject[]) => vo
 
 export async function saveProjectFirestore(project: NewspaperProject): Promise<boolean> {
   const path = `projects/${project.id}`;
-  const updatedProject = sanitizeForFirestore({
-    ...project,
-    updatedAt: new Date().toISOString(),
-  });
+  const prepared = markLocalSaveStarted(projectSyncState, project);
+  const writeUpdatedMs = parseIsoMs(prepared.updatedAt);
 
-  // Immediate local cache update
+  // Update local cache immediately with reconciled project list so reloads never lose it
+  const existing = readProjectsLocalCache().filter((p) => p.id !== prepared.id);
+  const localUpdatedList = [prepared, ...existing].sort(
+    (a, b) => parseIsoMs(b.updatedAt) - parseIsoMs(a.updatedAt)
+  );
+  writeProjectsLocalCache(localUpdatedList);
   try {
-    const raw = localStorage.getItem(LOCAL_STORAGE_BACKUP_KEY);
-    const existing = raw ? JSON.parse(raw) : [];
-    const remaining = existing.filter((p: any) => p.id !== project.id);
-    localStorage.setItem(LOCAL_STORAGE_BACKUP_KEY, JSON.stringify([updatedProject, ...remaining]));
-    localStorage.setItem(ACTIVE_PROJECT_KEY, project.id);
-  } catch (e) {
-    console.warn('Local storage cache update note:', e);
+    localStorage.setItem(ACTIVE_PROJECT_KEY, prepared.id);
+  } catch {
+    // ignore
   }
 
-  if (estimateJsonBytes(updatedProject) > 980_000) {
-    console.warn('Project exceeds Firestore 1MB limit; saved locally.');
+  let payloadProject = sanitizeForFirestore(prepared);
+  if (estimateJsonBytes(payloadProject) > 900_000) {
+    payloadProject = sanitizeForFirestore(await compactProjectForFirestore(payloadProject, 860_000));
+  }
+
+  if (estimateJsonBytes(payloadProject) > 980_000) {
+    console.warn('Project exceeds Firestore 1MB limit; preserved in local studio storage.');
+    markLocalSaveSettled(projectSyncState, prepared.id, writeUpdatedMs, false);
+    return false;
+  }
+
+  if (shouldAbortPendingWrite(projectSyncState, prepared.id, writeUpdatedMs)) {
     return false;
   }
 
   try {
-    await setDoc(doc(db, 'projects', project.id), updatedProject);
+    await setDoc(doc(db, 'projects', prepared.id), payloadProject);
+    markLocalSaveSettled(projectSyncState, prepared.id, writeUpdatedMs, true);
     return true;
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, path);
+    markLocalSaveSettled(projectSyncState, prepared.id, writeUpdatedMs, false);
     return false;
   }
 }
 
 export async function deleteProjectFirestore(projectId: string): Promise<boolean> {
   const path = `projects/${projectId}`;
+  markLocalDeleteStarted(projectSyncState, projectId);
+  lastRemoteProjects = lastRemoteProjects.filter((p) => p.id !== projectId);
+
+  const remaining = readProjectsLocalCache().filter((p) => p.id !== projectId);
+  writeProjectsLocalCache(remaining);
+
   try {
     await deleteDoc(doc(db, 'projects', projectId));
-    const raw = localStorage.getItem(LOCAL_STORAGE_BACKUP_KEY);
-    if (raw) {
-      const remaining = JSON.parse(raw).filter((p: any) => p.id !== projectId);
-      localStorage.setItem(LOCAL_STORAGE_BACKUP_KEY, JSON.stringify(remaining));
-    }
+    markLocalDeleteSettled(projectSyncState, projectId, true);
     return true;
   } catch (err) {
     handleFirestoreError(err, OperationType.DELETE, path);
+    markLocalDeleteSettled(projectSyncState, projectId, false);
     return false;
   }
 }
 
 export async function deleteAllProjectsFirestore(knownIds: string[] = []): Promise<boolean> {
+  const cachedIds = readProjectsLocalCache().map((p) => p.id);
+  const remoteIds = lastRemoteProjects.map((p) => p.id);
+  const allKnown = Array.from(new Set([...knownIds, ...cachedIds, ...remoteIds]));
+
+  markDeleteAllStarted(projectSyncState, allKnown);
+  lastRemoteProjects = [];
+  writeProjectsLocalCache([]);
   try {
-    localStorage.setItem(LOCAL_STORAGE_BACKUP_KEY, JSON.stringify([]));
     localStorage.removeItem(ACTIVE_PROJECT_KEY);
   } catch {
     // ignore
@@ -174,8 +229,10 @@ export async function deleteAllProjectsFirestore(knownIds: string[] = []): Promi
   try {
     const colRef = collection(db, 'projects');
     const snap = await getDocs(colRef);
-    const idsToDelete = new Set<string>(knownIds);
+    const idsToDelete = new Set<string>(allKnown);
     snap.forEach((d) => idsToDelete.add(d.id));
+
+    markDeleteAllStarted(projectSyncState, Array.from(idsToDelete));
 
     await Promise.all(
       Array.from(idsToDelete).map((id) =>
@@ -184,23 +241,23 @@ export async function deleteAllProjectsFirestore(knownIds: string[] = []): Promi
         )
       )
     );
+    markDeleteAllSettled(projectSyncState, Array.from(idsToDelete), true);
     return true;
   } catch (err) {
     handleFirestoreError(err, OperationType.DELETE, 'projects');
+    markDeleteAllSettled(projectSyncState, allKnown, false);
     return false;
   }
 }
 
 export async function duplicateProjectFirestore(projectId: string): Promise<NewspaperProject | null> {
   try {
-    const docSnap = await getDoc(doc(db, 'projects', projectId));
-    let original: NewspaperProject | null = null;
-    if (docSnap.exists()) {
-      original = docSnap.data() as NewspaperProject;
-    } else {
-      const raw = localStorage.getItem(LOCAL_STORAGE_BACKUP_KEY);
-      if (raw) {
-        original = JSON.parse(raw).find((p: any) => p.id === projectId) || null;
+    let original: NewspaperProject | null =
+      readProjectsLocalCache().find((p) => p.id === projectId) || null;
+    if (!original) {
+      const docSnap = await getDoc(doc(db, 'projects', projectId));
+      if (docSnap.exists()) {
+        original = docSnap.data() as NewspaperProject;
       }
     }
 
@@ -209,13 +266,13 @@ export async function duplicateProjectFirestore(projectId: string): Promise<News
     const now = new Date().toISOString();
     const newProject: NewspaperProject = {
       ...original,
-      id: `project-${Date.now()}`,
+      id: `project-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       title: `${original.title} (Copy)`,
       createdAt: now,
       updatedAt: now,
       pages: original.pages.map((p, idx) => ({
         ...p,
-        id: `page-${Date.now()}-${idx}`,
+        id: `page-${Date.now()}-${Math.random().toString(36).slice(2, 5)}-${idx}`,
       })),
     };
 
@@ -262,10 +319,11 @@ export function subscribePublishedNewspaper(callback: (pub: any) => void): () =>
 export async function submitModerationFirestore(project: NewspaperProject, durationMinutes: number): Promise<boolean> {
   const subId = `sub-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
   const safeDuration = Math.max(1, Math.round(Number(durationMinutes) || 1440));
+  const compactedProject = await compactProjectForFirestore(project, 840_000);
   const subData = sanitizeForFirestore({
     id: subId,
-    project,
-    projectTitle: project.title || 'MJJ Records Broadsheet Press',
+    project: compactedProject,
+    projectTitle: compactedProject.title || 'MJJ Records Broadsheet Press',
     durationMinutes: safeDuration,
     submittedAt: new Date().toISOString(),
     status: 'Pending Moderation',
@@ -350,8 +408,9 @@ export async function publishDirectFirestore(project: NewspaperProject, duration
   const now = new Date();
   const safeMinutes = Math.max(1, Math.round(Number(durationMinutes) || 1440));
   const expiresAt = new Date(now.getTime() + safeMinutes * 60 * 1000);
-  const projectTitle = project.title || 'MJJ Records Broadsheet Press';
-  const pubId = project.id || `project-${Date.now()}`;
+  const compactedProject = await compactProjectForFirestore(project, 840_000);
+  const projectTitle = compactedProject.title || 'MJJ Records Broadsheet Press';
+  const pubId = compactedProject.id || `project-${Date.now()}`;
 
   const publishedRecord = sanitizeForFirestore({
     id: pubId,
@@ -359,12 +418,12 @@ export async function publishDirectFirestore(project: NewspaperProject, duration
     projectTitle,
     name: projectTitle,
     title: projectTitle,
-    pages: project.pages || [],
+    pages: compactedProject.pages || [],
     publishedAt: now.toISOString(),
     expiresAt: expiresAt.toISOString(),
     durationMinutes: safeMinutes,
     isActive: true,
-    projectData: project,
+    projectData: compactedProject,
   });
 
   if (estimateJsonBytes(publishedRecord) > 980_000) {

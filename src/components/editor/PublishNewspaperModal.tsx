@@ -9,6 +9,7 @@ import {
   unpublishFirestore,
 } from '../../services/firestoreStorage.ts';
 import { estimateJsonBytes } from '../../utils/firestoreSanitize.ts';
+import { compactProjectForFirestore } from '../../utils/imageOptimizer.ts';
 
 interface PublishNewspaperModalProps {
   isOpen: boolean;
@@ -68,21 +69,22 @@ export const PublishNewspaperModal: React.FC<PublishNewspaperModalProps> = ({
     setStatusMsg({ type: null, text: '' });
 
     try {
-      const approxBytes = estimateJsonBytes(project);
+      const preparedProject = await compactProjectForFirestore(project, 840_000);
+      const approxBytes = estimateJsonBytes(preparedProject);
       if (approxBytes > 950_000) {
         setStatusMsg({
           type: 'error',
-          text: `Broadsheet payload is ${Math.round(approxBytes / 1024)}KB (over Firestore 950KB cap). Please re-upload large photos to auto-compress them or remove extra pages.`,
+          text: `Broadsheet payload is ${Math.round(approxBytes / 1024)}KB (over Firestore 950KB cap). Please use fewer photos or pages.`,
         });
         setIsPublishing(false);
         return;
       }
 
-      const ok = await submitModerationFirestore(project, effectiveMinutes);
+      const ok = await submitModerationFirestore(preparedProject, effectiveMinutes);
       fetch('/api/staff/submit-moderation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project, durationMinutes: effectiveMinutes }),
+        body: JSON.stringify({ project: preparedProject, durationMinutes: effectiveMinutes }),
       }).catch(() => {});
 
       if (ok) {
@@ -124,21 +126,22 @@ export const PublishNewspaperModal: React.FC<PublishNewspaperModalProps> = ({
     setStatusMsg({ type: null, text: '' });
 
     try {
-      const approxBytes = estimateJsonBytes(project);
+      const preparedProject = await compactProjectForFirestore(project, 840_000);
+      const approxBytes = estimateJsonBytes(preparedProject);
       if (approxBytes > 950_000) {
         setStatusMsg({
           type: 'error',
-          text: `Broadsheet payload is ${Math.round(approxBytes / 1024)}KB (over Firestore 950KB cap). Please re-upload large photos to auto-compress them.`,
+          text: `Broadsheet payload is ${Math.round(approxBytes / 1024)}KB (over Firestore 950KB cap). Please use fewer photos or pages.`,
         });
         setIsPublishing(false);
         return;
       }
 
-      const ok = await publishDirectFirestore(project, effectiveMinutes);
+      const ok = await publishDirectFirestore(preparedProject, effectiveMinutes);
       fetch('/api/staff/publish', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project, durationMinutes: effectiveMinutes }),
+        body: JSON.stringify({ project: preparedProject, durationMinutes: effectiveMinutes }),
       }).catch(() => {});
 
       if (ok) {

@@ -91,11 +91,14 @@ export default function App() {
   const [layoutModalMode, setLayoutModalMode] = useState<'add' | 'change'>('add');
   const [isPdfModalOpen, setIsPdfModalOpen] = useState<boolean>(false);
   const [isPublishModalOpen, setIsPublishModalOpen] = useState<boolean>(false);
+  const [publishModalProject, setPublishModalProject] = useState<NewspaperProject | null>(null);
   const [activeFlipbookDoc, setActiveFlipbookDoc] = useState<NewspaperProject | null>(null);
 
-  // Auto-save debounce state
+  // Auto-save debounce state (only fires on explicit user edits)
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'unsaved'>('saved');
-  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isProjectDirtyRef = useRef<boolean>(false);
+  const isCreatingProjectRef = useRef<boolean>(false);
 
   // Refresh lists helper
   const refreshLibraryData = () => {
@@ -113,7 +116,15 @@ export default function App() {
       setCurrentProject((prev) => {
         if (!prev) return null;
         const stillExists = normalized.find((p) => p.id === prev.id);
-        return stillExists ? prev : null;
+        if (!stillExists) {
+          if (saveTimeoutRef.current) {
+            clearTimeout(saveTimeoutRef.current);
+            saveTimeoutRef.current = null;
+          }
+          isProjectDirtyRef.current = false;
+          return null;
+        }
+        return prev;
       });
     });
 
@@ -165,46 +176,100 @@ export default function App() {
     setView('dashboard');
   };
 
-  // Debounced auto-save whenever currentProject changes
+  // Debounced auto-save ONLY when user has actively edited currentProject
   useEffect(() => {
-    if (!currentProject) return;
+    if (!currentProject || !isProjectDirtyRef.current) return;
 
     setSaveStatus('saving');
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
     }
 
+    const projectToSave = currentProject;
     saveTimeoutRef.current = setTimeout(() => {
-      saveProject(currentProject);
-      setProjects((prev) =>
-        prev.map((p) => (p.id === currentProject.id ? currentProject : p))
-      );
+      saveTimeoutRef.current = null;
+      isProjectDirtyRef.current = false;
+      const saved = saveProject(projectToSave);
+      setProjects((prev) => {
+        const exists = prev.some((p) => p.id === saved.id);
+        return exists
+          ? prev.map((p) => (p.id === saved.id ? saved : p))
+          : [saved, ...prev];
+      });
       setSaveStatus('saved');
     }, 600);
 
     return () => {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
       }
     };
   }, [currentProject]);
 
+  // Helper to commit user-initiated edits inside the editor
+  const commitProjectEdit = (nextProject: NewspaperProject) => {
+    isProjectDirtyRef.current = true;
+    setCurrentProject(nextProject);
+  };
+
+  // Flush any pending unsaved edit immediately before navigating or publishing
+  const flushPendingSave = (): NewspaperProject | null => {
+    if (!currentProject) return null;
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
+    if (isProjectDirtyRef.current) {
+      isProjectDirtyRef.current = false;
+      const saved = saveProject(currentProject);
+      setProjects((prev) => {
+        const exists = prev.some((p) => p.id === saved.id);
+        return exists
+          ? prev.map((p) => (p.id === saved.id ? saved : p))
+          : [saved, ...prev];
+      });
+      setSaveStatus('saved');
+      return saved;
+    }
+    return currentProject;
+  };
+
   // Handle creating new blank newspaper (user-initiated only)
   const handleCreateNewProject = () => {
+    if (isCreatingProjectRef.current) return;
+    isCreatingProjectRef.current = true;
+    setTimeout(() => {
+      isCreatingProjectRef.current = false;
+    }, 350);
+
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
+    isProjectDirtyRef.current = false;
+
     const fresh = normalizeProjectPages(createNewProject('New MJJ Broadsheet Edition'));
-    saveProject(fresh);
-    setProjects((prev) => [fresh, ...prev]);
-    setCurrentProject(fresh);
+    const saved = saveProject(fresh);
+    setProjects((prev) => [saved, ...prev.filter((p) => p.id !== saved.id)]);
+    setCurrentProject(saved);
+    setSaveStatus('saved');
     setActivePageIndex(0);
     setSelectedElementId(null);
     setSelectedImageSlot(null);
     setView('editor');
   };
 
-  // Open an existing project
+  // Open an existing project without mutating or auto-saving it
   const handleOpenProject = (projectId: string) => {
     const found = projects.find((p) => p.id === projectId);
     if (found) {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+      }
+      isProjectDirtyRef.current = false;
+      setSaveStatus('saved');
       setCurrentProject(normalizeProjectPages(found));
       setActivePageIndex(0);
       setSelectedElementId(null);
@@ -223,37 +288,54 @@ export default function App() {
 
   // Delete single project on dashboard
   const handleDeleteProject = (projectId: string) => {
-    const updated = deleteProject(projectId).map(normalizeProjectPages);
-    setProjects(updated);
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
     if (currentProject?.id === projectId) {
+      isProjectDirtyRef.current = false;
       setCurrentProject(null);
       setView('dashboard');
     }
+    const updated = deleteProject(projectId).map(normalizeProjectPages);
+    setProjects(updated);
   };
 
   // Delete ALL projects permanently
   const handleDeleteAllProjects = async () => {
-    await deleteAllProjects();
-    setProjects([]);
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
+    isProjectDirtyRef.current = false;
     setCurrentProject(null);
+    setProjects([]);
     setActivePageIndex(0);
     setSelectedElementId(null);
     setSelectedImageSlot(null);
     setView('dashboard');
+    await deleteAllProjects();
   };
 
   // Rename project on dashboard or in header
   const handleRenameProject = (projectId: string, newTitle: string) => {
-    setProjects((prev) =>
-      prev.map((p) => (p.id === projectId ? { ...p, title: newTitle } : p))
-    );
+    const target =
+      (currentProject && currentProject.id === projectId ? currentProject : null) ||
+      projects.find((p) => p.id === projectId);
+    if (!target) return;
+
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
+    isProjectDirtyRef.current = false;
+
+    const saved = saveProject({ ...target, title: newTitle });
+    setProjects((prev) => prev.map((p) => (p.id === projectId ? saved : p)));
     if (currentProject && currentProject.id === projectId) {
-      setCurrentProject((prev) => (prev ? { ...prev, title: newTitle } : null));
+      setCurrentProject(saved);
     }
-    const target = projects.find((p) => p.id === projectId);
-    if (target) {
-      saveProject({ ...target, title: newTitle });
-    }
+    setSaveStatus('saved');
   };
 
   // Import JSON project
@@ -288,7 +370,7 @@ export default function App() {
       ...currentProject,
       pages: [...currentProject.pages, newPage],
     };
-    setCurrentProject(updatedProject);
+    commitProjectEdit(updatedProject);
     setActivePageIndex(updatedProject.pages.length - 1);
     setSelectedElementId(null);
     setSelectedImageSlot(null);
@@ -297,14 +379,14 @@ export default function App() {
   const handleDuplicatePage = (pageId: string) => {
     if (!currentProject) return;
     const updated = duplicatePage(currentProject, pageId);
-    setCurrentProject(updated);
+    commitProjectEdit(updated);
     setActivePageIndex((prev) => Math.min(prev + 1, updated.pages.length - 1));
   };
 
   const handleDeletePage = (pageId: string) => {
     if (!currentProject || currentProject.pages.length <= 1) return;
     const updated = deletePage(currentProject, pageId);
-    setCurrentProject(updated);
+    commitProjectEdit(updated);
     setActivePageIndex((prev) => Math.max(0, Math.min(prev, updated.pages.length - 1)));
     setSelectedElementId(null);
     setSelectedImageSlot(null);
@@ -313,7 +395,7 @@ export default function App() {
   const handleMovePage = (fromIndex: number, toIndex: number) => {
     if (!currentProject) return;
     const updated = reorderPages(currentProject, fromIndex, toIndex);
-    setCurrentProject(updated);
+    commitProjectEdit(updated);
     setActivePageIndex(toIndex);
   };
 
@@ -326,7 +408,7 @@ export default function App() {
     const newPages = [...currentProject.pages];
     newPages[activePageIndex] = modifiedPage;
 
-    setCurrentProject({
+    commitProjectEdit({
       ...currentProject,
       pages: newPages,
     });
@@ -342,7 +424,7 @@ export default function App() {
     const newPages = [...currentProject.pages];
     newPages[activePageIndex] = updatedPage;
 
-    setCurrentProject({
+    commitProjectEdit({
       ...currentProject,
       pages: newPages,
     });
@@ -360,7 +442,7 @@ export default function App() {
     const newPages = [...currentProject.pages];
     newPages[activePageIndex] = updatedPage;
 
-    setCurrentProject({
+    commitProjectEdit({
       ...currentProject,
       pages: newPages,
     });
@@ -375,7 +457,7 @@ export default function App() {
     const newPages = [...currentProject.pages];
     newPages[activePageIndex] = updatedPage;
 
-    setCurrentProject({
+    commitProjectEdit({
       ...currentProject,
       pages: newPages,
     });
@@ -396,7 +478,7 @@ export default function App() {
     const newPages = [...currentProject.pages];
     newPages[activePageIndex] = updatedPage;
 
-    setCurrentProject({
+    commitProjectEdit({
       ...currentProject,
       pages: newPages,
     });
@@ -416,17 +498,21 @@ export default function App() {
 
   // Straight direct PDF download handler
   const handleDownloadPdfStraight = async () => {
-    if (!currentProject) return;
+    if (!currentProject || isExportingPdf) return;
     setIsExportingPdf(true);
-    await downloadProjectPdf(
+    setExportProgressText('Preparing PDF...');
+    const ok = await downloadProjectPdf(
       currentProject,
       offscreenPagesRef.current,
       (msg) => setExportProgressText(msg)
     );
+    if (!ok) {
+      setExportProgressText('PDF failed — try again');
+    }
     setTimeout(() => {
       setIsExportingPdf(false);
       setExportProgressText('');
-    }, 1500);
+    }, ok ? 2000 : 3500);
   };
 
   // Active page for newspaper editor
@@ -534,7 +620,7 @@ export default function App() {
                       onDeleteProject={handleDeleteProject}
                       onDeleteAllProjects={handleDeleteAllProjects}
                       onPublishProject={(project) => {
-                        setCurrentProject(normalizeProjectPages(project));
+                        setPublishModalProject(normalizeProjectPages(project));
                         setIsPublishModalOpen(true);
                       }}
                       onPreviewProject={(project) => {
@@ -551,7 +637,10 @@ export default function App() {
                     <Header
                       projectTitle={currentProject.title}
                       onUpdateTitle={(title) => handleRenameProject(currentProject.id, title)}
-                      onBackToDashboard={() => setView('dashboard')}
+                      onBackToDashboard={() => {
+                        flushPendingSave();
+                        setView('dashboard');
+                      }}
                       zoomLevel={zoomLevel}
                       onSetZoom={setZoomLevel}
                       previewMode={previewMode}
@@ -562,7 +651,11 @@ export default function App() {
                       exportProgressText={exportProgressText}
                       saveStatus={saveStatus}
                       pageCount={currentProject.pages.length}
-                      onOpenPublishModal={() => setIsPublishModalOpen(true)}
+                      onOpenPublishModal={() => {
+                        const flushed = flushPendingSave() || currentProject;
+                        setPublishModalProject(flushed);
+                        setIsPublishModalOpen(true);
+                      }}
                       onOpenFlipbookPreview={() => setActiveFlipbookDoc(currentProject)}
                       onOpenAiModal={() => setIsAiModalOpen(true)}
                     />
@@ -710,12 +803,15 @@ export default function App() {
       )}
 
       {/* Publish / Send to Moderation Modal */}
-      {currentProject && (
+      {(publishModalProject || currentProject) && (
         <PublishNewspaperModal
           isOpen={isPublishModalOpen}
-          onClose={() => setIsPublishModalOpen(false)}
-          project={currentProject}
-          onOpenFlipbookPreview={() => setActiveFlipbookDoc(currentProject)}
+          onClose={() => {
+            setIsPublishModalOpen(false);
+            setPublishModalProject(null);
+          }}
+          project={(publishModalProject || currentProject)!}
+          onOpenFlipbookPreview={() => setActiveFlipbookDoc((publishModalProject || currentProject)!)}
         />
       )}
 
