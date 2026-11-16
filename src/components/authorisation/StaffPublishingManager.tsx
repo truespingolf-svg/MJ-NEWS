@@ -31,6 +31,7 @@ import {
   unpublishFirestore,
   addAnnouncementFirestore,
   deleteAnnouncementFirestore,
+  getLastFirestoreErrorMessage,
 } from '../../services/firestoreStorage.ts';
 
 interface PublishedNewspaperState {
@@ -99,8 +100,12 @@ export const StaffPublishingManager: React.FC<StaffPublishingManagerProps> = ({
 
     const unsubProj = subscribeProjects((projs) => {
       setLibraryProjects(projs);
-      if (projs.length > 0 && !selectedProjectId) {
-        setSelectedProjectId(projs[0].id);
+      if (projs.length > 0) {
+        setSelectedProjectId((prev) =>
+          prev && projs.some((p) => p.id === prev) ? prev : projs[0].id
+        );
+      } else {
+        setSelectedProjectId('');
       }
     });
 
@@ -194,7 +199,12 @@ export const StaffPublishingManager: React.FC<StaffPublishingManagerProps> = ({
         setTimeout(() => setStatusMsg(''), 3500);
         if (onRefreshData) onRefreshData();
       } else {
-        setStatusMsg('Failed to publish broadsheet. Please check connection.');
+        const reason = getLastFirestoreErrorMessage();
+        setStatusMsg(
+          reason
+            ? `Failed to publish broadsheet: ${reason}`
+            : 'Failed to publish broadsheet. Please check connection and image sizes.'
+        );
       }
     } catch (err) {
       console.error('Error publishing project:', err);
@@ -215,9 +225,17 @@ export const StaffPublishingManager: React.FC<StaffPublishingManagerProps> = ({
         setStatusMsg('Newspaper submission accepted and published live instantly across all devices!');
         setTimeout(() => setStatusMsg(''), 3500);
         if (onRefreshData) onRefreshData();
+      } else {
+        const reason = getLastFirestoreErrorMessage();
+        setStatusMsg(
+          reason
+            ? `Failed to accept submission: ${reason}`
+            : 'Failed to publish approved submission to Firestore.'
+        );
       }
     } catch (err) {
       console.error('Error accepting submission:', err);
+      setStatusMsg('Error accepting newspaper submission.');
     }
   };
 

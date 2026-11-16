@@ -1,6 +1,19 @@
 import { NewspaperProject } from '../types/newspaper.ts';
 import { estimateJsonBytes } from './firestoreSanitize.ts';
 
+export interface CompactionPass {
+  maxDimension: number;
+  quality: number;
+}
+
+export const COMPACTION_PASSES: CompactionPass[] = [
+  { maxDimension: 820, quality: 0.72 },
+  { maxDimension: 620, quality: 0.58 },
+  { maxDimension: 460, quality: 0.45 },
+  { maxDimension: 340, quality: 0.35 },
+  { maxDimension: 260, quality: 0.28 },
+];
+
 function compressImageElementToDataUrl(
   img: HTMLImageElement,
   maxDimension: number,
@@ -30,15 +43,16 @@ function compressImageElementToDataUrl(
   let q = initialQuality;
   let best = canvas.toDataURL('image/jpeg', q);
 
-  // Step down quality progressively if needed so Firestore stays comfortably under 1MB
-  while (best.length > targetChars && q > 0.45) {
+  // Step down quality progressively until within budget or minimum floor
+  while (best.length > targetChars && q > 0.25) {
     q = Number((q - 0.1).toFixed(2));
     best = canvas.toDataURL('image/jpeg', q);
   }
 
-  // If still large, downscale canvas once more
-  if (best.length > targetChars && Math.max(targetW, targetH) > 640) {
-    const scale = 640 / Math.max(targetW, targetH);
+  // Downscale proportionally if a single image still exceeds its per-slot character budget
+  if (best.length > targetChars && Math.max(targetW, targetH) > 260) {
+    const fallbackDim = Math.max(240, Math.round(maxDimension * 0.65));
+    const scale = Math.min(1, fallbackDim / Math.max(targetW, targetH));
     const smallCanvas = document.createElement('canvas');
     smallCanvas.width = Math.max(1, Math.round(targetW * scale));
     smallCanvas.height = Math.max(1, Math.round(targetH * scale));
@@ -47,7 +61,7 @@ function compressImageElementToDataUrl(
       sCtx.fillStyle = '#faf7f0';
       sCtx.fillRect(0, 0, smallCanvas.width, smallCanvas.height);
       sCtx.drawImage(img, 0, 0, smallCanvas.width, smallCanvas.height);
-      best = smallCanvas.toDataURL('image/jpeg', 0.68);
+      best = smallCanvas.toDataURL('image/jpeg', Math.max(0.28, q));
     }
   }
 
@@ -120,51 +134,68 @@ export async function optimizeNewspaperImage(
 }
 
 /**
- * Automatically shrinks embedded base64 images if a multi-page newspaper project
- * approaches Firestore's 1MB document limit, preventing silent save/submission failures.
+ * Iteratively shrinks embedded base64 images if a multi-page newspaper project
+ * approaches Firestore's 1MB document limit, guaranteeing headroom for Firestore's
+ * field/protobuf serialization overhead without discarding photos or layout data.
  */
 export async function compactProjectForFirestore(
   project: NewspaperProject,
-  maxBytes: number = 880_000
+  maxBytes: number = 700_000
 ): Promise<NewspaperProject> {
   if (estimateJsonBytes(project) <= maxBytes || typeof document === 'undefined') {
     return project;
   }
 
-  const slotEntries: Array<{ pageIdx: number; slot: 'image1' | 'image2' | 'image3' }> = [];
-  project.pages.forEach((p, pageIdx) => {
-    (['image1', 'image2', 'image3'] as const).forEach((slot) => {
-      if (p.images?.[slot]?.url?.startsWith('data:image/')) {
-        slotEntries.push({ pageIdx, slot });
-      }
-    });
-  });
+  let current = project;
+  const imageCount = current.pages.reduce((sum, p) => {
+    return (
+      sum +
+      (['image1', 'image2', 'image3'] as const).filter((slot) =>
+        p.images?.[slot]?.url?.startsWith('data:image/')
+      ).length
+    );
+  }, 0);
 
-  if (slotEntries.length === 0) return project;
+  if (imageCount === 0) {
+    return current;
+  }
 
   const perImageBudget = Math.max(
-    28_000,
-    Math.floor((maxBytes - 80_000) / Math.max(1, slotEntries.length))
+    12_000,
+    Math.floor((maxBytes - 80_000) / Math.max(1, imageCount))
   );
 
-  const clonedPages = await Promise.all(
-    project.pages.map(async (page) => {
-      const updatedImages = { ...page.images };
-      for (const slot of ['image1', 'image2', 'image3'] as const) {
-        const img = updatedImages[slot];
-        if (img?.url?.startsWith('data:image/')) {
-          updatedImages[slot] = {
-            ...img,
-            url: await recompressDataUrl(img.url, 720, perImageBudget, 0.68),
-          };
+  for (const pass of COMPACTION_PASSES) {
+    if (estimateJsonBytes(current) <= maxBytes) {
+      break;
+    }
+
+    const clonedPages = await Promise.all(
+      current.pages.map(async (page) => {
+        const updatedImages = { ...page.images };
+        for (const slot of ['image1', 'image2', 'image3'] as const) {
+          const img = updatedImages[slot];
+          if (img?.url?.startsWith('data:image/')) {
+            updatedImages[slot] = {
+              ...img,
+              url: await recompressDataUrl(
+                img.url,
+                pass.maxDimension,
+                perImageBudget,
+                pass.quality
+              ),
+            };
+          }
         }
-      }
-      return { ...page, images: updatedImages };
-    })
-  );
+        return { ...page, images: updatedImages };
+      })
+    );
 
-  return {
-    ...project,
-    pages: clonedPages,
-  };
+    current = {
+      ...current,
+      pages: clonedPages,
+    };
+  }
+
+  return current;
 }

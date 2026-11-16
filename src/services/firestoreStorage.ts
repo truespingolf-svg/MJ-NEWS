@@ -58,9 +58,34 @@ interface FirestoreErrorInfo {
   };
 }
 
+let lastFirestoreErrorMsg = '';
+
+export function getLastFirestoreErrorMessage(): string {
+  return lastFirestoreErrorMsg;
+}
+
+async function writeWithTimeout<T>(promise: Promise<T>, label: string, timeoutMs = 15000): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`Firestore request timed out (${label}). Please retry in a moment.`)),
+          timeoutMs
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer!);
+  }
+}
+
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errText = error instanceof Error ? error.message : String(error);
+  lastFirestoreErrorMsg = errText;
   const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
+    error: errText,
     authInfo: {
       userId: auth.currentUser?.uid,
       email: auth.currentUser?.email,
@@ -168,12 +193,13 @@ export async function saveProjectFirestore(project: NewspaperProject): Promise<b
   }
 
   let payloadProject = sanitizeForFirestore(prepared);
-  if (estimateJsonBytes(payloadProject) > 900_000) {
-    payloadProject = sanitizeForFirestore(await compactProjectForFirestore(payloadProject, 860_000));
+  if (estimateJsonBytes(payloadProject) > 700_000) {
+    payloadProject = sanitizeForFirestore(await compactProjectForFirestore(payloadProject, 700_000));
   }
 
-  if (estimateJsonBytes(payloadProject) > 980_000) {
-    console.warn('Project exceeds Firestore 1MB limit; preserved in local studio storage.');
+  if (estimateJsonBytes(payloadProject) > 920_000) {
+    lastFirestoreErrorMsg = 'Newspaper photos exceed Firestore 1MB storage limit even after optimization.';
+    console.warn(lastFirestoreErrorMsg);
     markLocalSaveSettled(projectSyncState, prepared.id, writeUpdatedMs, false);
     return false;
   }
@@ -183,7 +209,8 @@ export async function saveProjectFirestore(project: NewspaperProject): Promise<b
   }
 
   try {
-    await setDoc(doc(db, 'projects', prepared.id), payloadProject);
+    lastFirestoreErrorMsg = '';
+    await writeWithTimeout(setDoc(doc(db, 'projects', prepared.id), payloadProject), `projects/${prepared.id}`);
     markLocalSaveSettled(projectSyncState, prepared.id, writeUpdatedMs, true);
     return true;
   } catch (err) {
@@ -317,9 +344,10 @@ export function subscribePublishedNewspaper(callback: (pub: any) => void): () =>
 }
 
 export async function submitModerationFirestore(project: NewspaperProject, durationMinutes: number): Promise<boolean> {
+  lastFirestoreErrorMsg = '';
   const subId = `sub-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
   const safeDuration = Math.max(1, Math.round(Number(durationMinutes) || 1440));
-  const compactedProject = await compactProjectForFirestore(project, 840_000);
+  const compactedProject = sanitizeForFirestore(await compactProjectForFirestore(project, 700_000));
   const subData = sanitizeForFirestore({
     id: subId,
     project: compactedProject,
@@ -329,13 +357,15 @@ export async function submitModerationFirestore(project: NewspaperProject, durat
     status: 'Pending Moderation',
   });
 
-  if (estimateJsonBytes(subData) > 980_000) {
-    console.error('Submission exceeds 1MB Firestore document limit.');
+  const payloadBytes = estimateJsonBytes(subData);
+  if (payloadBytes > 920_000) {
+    lastFirestoreErrorMsg = `Submission payload (${Math.round(payloadBytes / 1024)}KB) exceeds Firestore 1MB document limit.`;
+    console.error(lastFirestoreErrorMsg);
     return false;
   }
 
   try {
-    await setDoc(doc(db, 'submissions', subId), subData);
+    await writeWithTimeout(setDoc(doc(db, 'submissions', subId), subData), `submissions/${subId}`);
     return true;
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, `submissions/${subId}`);
@@ -360,33 +390,53 @@ export function subscribeSubmissions(callback: (submissions: any[]) => void): ()
 }
 
 export async function acceptSubmissionFirestore(submissionId: string): Promise<boolean> {
+  lastFirestoreErrorMsg = '';
   try {
     const subSnap = await getDoc(doc(db, 'submissions', submissionId));
-    if (!subSnap.exists()) return false;
+    if (!subSnap.exists()) {
+      lastFirestoreErrorMsg = 'Submission not found in moderation queue.';
+      return false;
+    }
     const submission = subSnap.data();
 
     const now = new Date();
     const durationMinutes = submission.durationMinutes || 1440;
     const expiresAt = new Date(now.getTime() + durationMinutes * 60 * 1000);
-    const pubId = submission.project.id || `project-${Date.now()}`;
+    const rawProj: NewspaperProject = submission.project || {
+      id: `project-${Date.now()}`,
+      title: submission.projectTitle || 'MJJ Records Broadsheet Press',
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+      pages: submission.pages || [],
+    };
+    const compactedProject = sanitizeForFirestore(await compactProjectForFirestore(rawProj, 700_000));
+    const pubId = compactedProject.id || `project-${Date.now()}`;
+    const resolvedTitle = submission.projectTitle || compactedProject.title || 'MJJ Records Broadsheet Press';
 
     const publishedRecord = sanitizeForFirestore({
       id: pubId,
       projectId: pubId,
-      projectTitle: submission.projectTitle,
-      name: submission.projectTitle,
-      title: submission.projectTitle,
-      pages: submission.project.pages || [],
+      projectTitle: resolvedTitle,
+      name: resolvedTitle,
+      title: resolvedTitle,
+      createdAt: compactedProject.createdAt || now.toISOString(),
+      updatedAt: compactedProject.updatedAt || now.toISOString(),
+      pages: compactedProject.pages || [],
       publishedAt: now.toISOString(),
       expiresAt: expiresAt.toISOString(),
       durationMinutes,
       isActive: true,
-      projectData: submission.project,
     });
 
-    await setDoc(doc(db, 'system', 'publishedNewspaper'), publishedRecord);
-    await setDoc(doc(db, 'newspapers', pubId), publishedRecord);
-    await deleteDoc(doc(db, 'submissions', submissionId));
+    const payloadBytes = estimateJsonBytes(publishedRecord);
+    if (payloadBytes > 920_000) {
+      lastFirestoreErrorMsg = `Approved broadsheet (${Math.round(payloadBytes / 1024)}KB) exceeds Firestore 1MB limit.`;
+      return false;
+    }
+
+    await writeWithTimeout(setDoc(doc(db, 'system', 'publishedNewspaper'), publishedRecord), 'system/publishedNewspaper');
+    await writeWithTimeout(setDoc(doc(db, 'newspapers', pubId), publishedRecord), `newspapers/${pubId}`);
+    await writeWithTimeout(deleteDoc(doc(db, 'submissions', submissionId)), `submissions/${submissionId}`);
     return true;
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, 'system/publishedNewspaper');
@@ -405,10 +455,11 @@ export async function rejectSubmissionFirestore(submissionId: string): Promise<b
 }
 
 export async function publishDirectFirestore(project: NewspaperProject, durationMinutes: number): Promise<boolean> {
+  lastFirestoreErrorMsg = '';
   const now = new Date();
   const safeMinutes = Math.max(1, Math.round(Number(durationMinutes) || 1440));
   const expiresAt = new Date(now.getTime() + safeMinutes * 60 * 1000);
-  const compactedProject = await compactProjectForFirestore(project, 840_000);
+  const compactedProject = sanitizeForFirestore(await compactProjectForFirestore(project, 700_000));
   const projectTitle = compactedProject.title || 'MJJ Records Broadsheet Press';
   const pubId = compactedProject.id || `project-${Date.now()}`;
 
@@ -418,22 +469,25 @@ export async function publishDirectFirestore(project: NewspaperProject, duration
     projectTitle,
     name: projectTitle,
     title: projectTitle,
+    createdAt: compactedProject.createdAt || now.toISOString(),
+    updatedAt: compactedProject.updatedAt || now.toISOString(),
     pages: compactedProject.pages || [],
     publishedAt: now.toISOString(),
     expiresAt: expiresAt.toISOString(),
     durationMinutes: safeMinutes,
     isActive: true,
-    projectData: compactedProject,
   });
 
-  if (estimateJsonBytes(publishedRecord) > 980_000) {
-    console.error('Published newspaper exceeds 1MB Firestore document limit.');
+  const payloadBytes = estimateJsonBytes(publishedRecord);
+  if (payloadBytes > 920_000) {
+    lastFirestoreErrorMsg = `Published broadsheet (${Math.round(payloadBytes / 1024)}KB) exceeds Firestore 1MB limit.`;
+    console.error(lastFirestoreErrorMsg);
     return false;
   }
 
   try {
-    await setDoc(doc(db, 'system', 'publishedNewspaper'), publishedRecord);
-    await setDoc(doc(db, 'newspapers', pubId), publishedRecord);
+    await writeWithTimeout(setDoc(doc(db, 'system', 'publishedNewspaper'), publishedRecord), 'system/publishedNewspaper');
+    await writeWithTimeout(setDoc(doc(db, 'newspapers', pubId), publishedRecord), `newspapers/${pubId}`);
     return true;
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, 'system/publishedNewspaper');

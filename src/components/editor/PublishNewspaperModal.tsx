@@ -7,6 +7,7 @@ import {
   submitModerationFirestore,
   publishDirectFirestore,
   unpublishFirestore,
+  getLastFirestoreErrorMessage,
 } from '../../services/firestoreStorage.ts';
 import { estimateJsonBytes } from '../../utils/firestoreSanitize.ts';
 import { compactProjectForFirestore } from '../../utils/imageOptimizer.ts';
@@ -69,12 +70,12 @@ export const PublishNewspaperModal: React.FC<PublishNewspaperModalProps> = ({
     setStatusMsg({ type: null, text: '' });
 
     try {
-      const preparedProject = await compactProjectForFirestore(project, 840_000);
+      const preparedProject = await compactProjectForFirestore(project, 700_000);
       const approxBytes = estimateJsonBytes(preparedProject);
-      if (approxBytes > 950_000) {
+      if (approxBytes > 900_000) {
         setStatusMsg({
           type: 'error',
-          text: `Broadsheet payload is ${Math.round(approxBytes / 1024)}KB (over Firestore 950KB cap). Please use fewer photos or pages.`,
+          text: `Broadsheet payload is ${Math.round(approxBytes / 1024)}KB (over Firestore 1MB cap). Please use fewer photos or pages.`,
         });
         setIsPublishing(false);
         return;
@@ -104,9 +105,12 @@ export const PublishNewspaperModal: React.FC<PublishNewspaperModalProps> = ({
           text: `"${project.title}" was submitted to Moderation! Authorised staff can preview and approve it in Authorisation Centre -> Newspaper Moderation & Broadcast.`,
         });
       } else {
+        const reason = getLastFirestoreErrorMessage();
         setStatusMsg({
           type: 'error',
-          text: 'Failed to save submission to Firestore (size limit or network issue). Please verify connection and image sizes.',
+          text: reason
+            ? `Failed to send to moderation: ${reason}`
+            : 'Failed to save submission to Firestore (size limit or network issue). Please verify connection and image sizes.',
         });
       }
     } catch (err) {
@@ -126,12 +130,12 @@ export const PublishNewspaperModal: React.FC<PublishNewspaperModalProps> = ({
     setStatusMsg({ type: null, text: '' });
 
     try {
-      const preparedProject = await compactProjectForFirestore(project, 840_000);
+      const preparedProject = await compactProjectForFirestore(project, 700_000);
       const approxBytes = estimateJsonBytes(preparedProject);
-      if (approxBytes > 950_000) {
+      if (approxBytes > 900_000) {
         setStatusMsg({
           type: 'error',
-          text: `Broadsheet payload is ${Math.round(approxBytes / 1024)}KB (over Firestore 950KB cap). Please use fewer photos or pages.`,
+          text: `Broadsheet payload is ${Math.round(approxBytes / 1024)}KB (over Firestore 1MB cap). Please use fewer photos or pages.`,
         });
         setIsPublishing(false);
         return;
@@ -161,9 +165,12 @@ export const PublishNewspaperModal: React.FC<PublishNewspaperModalProps> = ({
           text: `"${project.title}" is now LIVE on air for ${effectiveHours} hours across all devices!`,
         });
       } else {
+        const reason = getLastFirestoreErrorMessage();
         setStatusMsg({
           type: 'error',
-          text: 'Failed to publish broadsheet to Firestore. Please check connection and image sizes.',
+          text: reason
+            ? `Failed to publish broadsheet: ${reason}`
+            : 'Failed to publish broadsheet to Firestore. Please check connection and image sizes.',
         });
       }
     } catch (err) {

@@ -16,6 +16,8 @@ import {
   setEventCountdownConfigInFirestore,
   addStaffAuditLogFirestore,
 } from '../../services/firestoreStorage.ts';
+import { DateTimePickerField } from '../common/DateTimePickerField.tsx';
+import { applyQuickSchedulePreset, toLocalDateTimeString } from '../../utils/dateTimeFormat.ts';
 
 export const StaffCountdownManager: React.FC = () => {
   const [config, setConfig] = useState<EventCountdownConfig | null>(null);
@@ -23,7 +25,9 @@ export const StaffCountdownManager: React.FC = () => {
   // Form fields matching EventCountdownConfig
   const [eventTitle, setEventTitle] = useState('');
   const [eventDescription, setEventDescription] = useState('');
-  const [targetDateString, setTargetDateString] = useState('');
+  const [targetDateString, setTargetDateString] = useState(() =>
+    applyQuickSchedulePreset('tomorrow-8pm')
+  );
   const [actionButtonText, setActionButtonText] = useState('Reserve VIP Pass');
   const [actionButtonLink, setActionButtonLink] = useState('#challenges');
   const [backgroundImage, setBackgroundImage] = useState('');
@@ -54,11 +58,7 @@ export const StaffCountdownManager: React.FC = () => {
         setCountdownVisible(c.countdownVisible !== false);
 
         if (c.targetTimestamp) {
-          const d = new Date(c.targetTimestamp);
-          const iso = new Date(d.getTime() - d.getTimezoneOffset() * 60000)
-            .toISOString()
-            .slice(0, 16);
-          setTargetDateString(iso);
+          setTargetDateString(toLocalDateTimeString(new Date(c.targetTimestamp)));
         }
       }
     });
@@ -147,7 +147,7 @@ export const StaffCountdownManager: React.FC = () => {
       {/* Editor Form */}
       <div className="bg-[#12121a] border border-[#232332] rounded-2xl p-6 sm:p-8 space-y-6 shadow-2xl">
         <form onSubmit={handleSave} className="space-y-5">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <div className="space-y-4">
             <div>
               <label className="block text-xs font-mono text-neutral-300 mb-1">
                 Event Headline / Title <span className="text-amber-400">*</span>
@@ -164,28 +164,23 @@ export const StaffCountdownManager: React.FC = () => {
 
             <div>
               <label className="block text-xs font-mono text-neutral-300 mb-1">
-                Target Date &amp; Time (Countdown Timer) <span className="text-amber-400">*</span>
+                Event Description / Teaser
               </label>
               <input
-                type="datetime-local"
-                value={targetDateString}
-                onChange={(e) => setTargetDateString(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-xl bg-neutral-950 border border-neutral-700 text-amber-300 text-xs focus:outline-none focus:border-amber-400 font-mono"
-                required
+                type="text"
+                value={eventDescription}
+                onChange={(e) => setEventDescription(e.target.value)}
+                placeholder="e.g. Worldwide holographic showcase and multi-track master release across major capitals."
+                className="w-full px-3.5 py-2.5 rounded-xl bg-neutral-950 border border-neutral-700 text-white text-xs focus:outline-none focus:border-amber-400 font-sans"
               />
             </div>
-          </div>
 
-          <div>
-            <label className="block text-xs font-mono text-neutral-300 mb-1">
-              Event Description / Teaser
-            </label>
-            <input
-              type="text"
-              value={eventDescription}
-              onChange={(e) => setEventDescription(e.target.value)}
-              placeholder="e.g. Worldwide holographic showcase and multi-track master release across major capitals."
-              className="w-full px-3.5 py-2.5 rounded-xl bg-neutral-950 border border-neutral-700 text-white text-xs focus:outline-none focus:border-amber-400 font-sans"
+            <DateTimePickerField
+              label="Event Target Date & Time"
+              value={targetDateString}
+              onChange={setTargetDateString}
+              accent="amber"
+              helperText="Updates public countdown live"
             />
           </div>
 

@@ -2,6 +2,15 @@ import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import { NewspaperProject } from '../types/newspaper.ts';
 import { sanitizeCssModernColors, hasModernCssColors } from '../utils/cssSanitize.ts';
+import { computeObjectFitRect, computePdfPageSizeMm } from '../utils/pdfGeometry.ts';
+
+interface CapturedImageSlotMetric {
+  natW: number;
+  natH: number;
+  boxW: number;
+  boxH: number;
+  fit: string;
+}
 
 /**
  * Resolves any modern CSS color expression (oklch, oklab, color-mix, etc.)
@@ -159,6 +168,20 @@ async function waitForImagesAndFonts(container: HTMLElement): Promise<void> {
   );
 }
 
+function captureImageMetrics(pageEl: HTMLElement): CapturedImageSlotMetric[] {
+  return Array.from(pageEl.querySelectorAll<HTMLImageElement>('img')).map((imgEl) => {
+    const parent = imgEl.parentElement;
+    const computed = window.getComputedStyle(imgEl);
+    return {
+      natW: imgEl.naturalWidth || 0,
+      natH: imgEl.naturalHeight || 0,
+      boxW: parent?.clientWidth || imgEl.clientWidth || 0,
+      boxH: parent?.clientHeight || imgEl.clientHeight || 0,
+      fit: imgEl.style.objectFit || computed.objectFit || 'cover',
+    };
+  });
+}
+
 function triggerSinglePdfDownload(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -177,8 +200,9 @@ function triggerSinglePdfDownload(blob: Blob, filename: string) {
 }
 
 /**
- * Exports a newspaper project straight to a multi-page PDF and triggers a clean download
- * across desktop browsers, mobile browsers, PWAs, and iframe sandboxes.
+ * Exports a newspaper project straight to a multi-page PDF at true broadsheet
+ * proportions (preserving exact page & photo aspect ratios with zero stretching)
+ * and triggers a clean download across desktop, mobile, and embedded iframes.
  */
 export async function downloadProjectPdf(
   project: NewspaperProject,
@@ -214,15 +238,6 @@ export async function downloadProjectPdf(
     await waitForImagesAndFonts(searchRoot);
     const sanitizedCss = await collectSanitizedStylesheets();
 
-    const pdf = new jsPDF({
-      orientation: 'portrait',
-      unit: 'mm',
-      format: 'a4',
-      compress: true,
-    });
-
-    const pdfWidth = pdf.internal.pageSize.getWidth();
-    const pdfHeight = pdf.internal.pageSize.getHeight();
     const safeScale = Math.min(1.6, Math.max(1.25, window.devicePixelRatio || 1.35));
 
     const dummyCanvas = document.createElement('canvas');
@@ -230,11 +245,13 @@ export async function downloadProjectPdf(
     dummyCanvas.height = 1;
     const colorCtx = dummyCanvas.getContext('2d');
 
+    let pdf: jsPDF | null = null;
     let renderedPagesCount = 0;
 
     for (let i = 0; i < targetPages.length; i++) {
       onProgress?.(`Rendering broadsheet page ${i + 1} of ${targetPages.length}...`);
       const pageEl = targetPages[i];
+      const preCapturedImgs = captureImageMetrics(pageEl);
 
       try {
         const canvas = await html2canvas(pageEl, {
@@ -245,6 +262,7 @@ export async function downloadProjectPdf(
           logging: false,
           scrollX: 0,
           scrollY: 0,
+          windowWidth: Math.max(1200, (pageEl.scrollWidth || 800) + 120),
           backgroundColor: '#faf7f0',
           onclone: (clonedDoc, clonedTarget) => {
             // Remove same-origin <link rel="stylesheet"> in clone so Tailwind v4 oklch/oklab/color-mix
@@ -276,6 +294,17 @@ export async function downloadProjectPdf(
               clonedDoc.head.appendChild(injectedStyle);
             }
 
+            // Lock broadsheet sheet width to desktop 800px inside clone so mobile viewports
+            // never compress or distort proportions.
+            if (clonedTarget) {
+              clonedTarget.style.width = '800px';
+              clonedTarget.style.maxWidth = 'none';
+              clonedTarget.querySelectorAll<HTMLElement>('.newsprint-paper').forEach((sheet) => {
+                sheet.style.width = '800px';
+                sheet.style.maxWidth = 'none';
+              });
+            }
+
             // Reposition any offscreen wrapper cleanly inside the cloned document
             let anc: HTMLElement | null = clonedTarget;
             while (anc && anc !== clonedDoc.body) {
@@ -291,34 +320,72 @@ export async function downloadProjectPdf(
                 anc.style.position = 'static';
                 anc.style.left = '0px';
                 anc.style.top = '0px';
+                anc.style.width = '800px';
               }
               anc = anc.parentElement;
             }
 
-            // Guard against any broken images in clone aborting capture
+            // Guard against broken images AND convert object-fit: cover / contain into
+            // explicit unstretched pixel dimensions inside overflow-hidden containers
+            // because html2canvas does not support CSS object-fit natively.
             if (clonedTarget) {
-              clonedTarget.querySelectorAll<HTMLImageElement>('img').forEach((imgEl) => {
-                if (!imgEl.complete || imgEl.naturalWidth === 0) {
+              const clonedImgs = Array.from(clonedTarget.querySelectorAll<HTMLImageElement>('img'));
+              clonedImgs.forEach((imgEl, idx) => {
+                const metric = preCapturedImgs[idx];
+                const natW = imgEl.naturalWidth || metric?.natW || 0;
+                const natH = imgEl.naturalHeight || metric?.natH || 0;
+
+                if (!imgEl.complete || natW === 0 || natH === 0) {
                   imgEl.style.display = 'none';
+                  return;
+                }
+
+                const boxW = metric?.boxW || imgEl.parentElement?.clientWidth || imgEl.clientWidth;
+                const boxH = metric?.boxH || imgEl.parentElement?.clientHeight || imgEl.clientHeight;
+                const fit = metric?.fit || imgEl.style.objectFit || 'cover';
+
+                if (boxW > 0 && boxH > 0) {
+                  const rect = computeObjectFitRect(natW, natH, boxW, boxH, fit);
+                  imgEl.style.width = `${rect.width}px`;
+                  imgEl.style.height = `${rect.height}px`;
+                  imgEl.style.maxWidth = 'none';
+                  imgEl.style.maxHeight = 'none';
+                  imgEl.style.flexShrink = '0';
+                  imgEl.style.objectFit = 'fill';
                 }
               });
+
               sanitizeNodeColors(clonedTarget, colorCtx);
             }
           },
         });
 
+        const { widthMm, heightMm, orientation } = computePdfPageSizeMm(
+          canvas.width,
+          canvas.height,
+          210
+        );
+
         const imgData = canvas.toDataURL('image/jpeg', 0.92);
-        if (renderedPagesCount > 0) {
-          pdf.addPage();
+        if (!pdf) {
+          pdf = new jsPDF({
+            orientation,
+            unit: 'mm',
+            format: [widthMm, heightMm],
+            compress: true,
+          });
+        } else {
+          pdf.addPage([widthMm, heightMm], orientation);
         }
-        pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight, undefined, 'FAST');
+
+        pdf.addImage(imgData, 'JPEG', 0, 0, widthMm, heightMm, undefined, 'FAST');
         renderedPagesCount++;
       } catch (pageErr) {
         console.error(`Page ${i + 1} PDF render warning:`, pageErr);
       }
     }
 
-    if (renderedPagesCount === 0) {
+    if (!pdf || renderedPagesCount === 0) {
       throw new Error('Could not render any broadsheet pages into PDF.');
     }
 

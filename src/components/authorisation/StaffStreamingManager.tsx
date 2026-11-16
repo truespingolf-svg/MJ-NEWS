@@ -25,6 +25,8 @@ import {
   setSiteAudioSettingsFirestore,
   addStaffAuditLogFirestore,
 } from '../../services/firestoreStorage.ts';
+import { DateTimePickerField } from '../common/DateTimePickerField.tsx';
+import { applyQuickSchedulePreset } from '../../utils/dateTimeFormat.ts';
 
 const DEFAULT_ERAS: StreamingTrack['era'][] = [
   'Thriller',
@@ -55,7 +57,9 @@ export const StaffStreamingManager: React.FC = () => {
   const [description, setDescription] = useState('');
   const [isFeatured, setIsFeatured] = useState(false);
   const [isPremiere, setIsPremiere] = useState(false);
-  const [premiereDateString, setPremiereDateString] = useState('');
+  const [premiereDateString, setPremiereDateString] = useState(() =>
+    applyQuickSchedulePreset('tomorrow-8pm')
+  );
 
   // Site Entry Song state
   const [siteAudioSettings, setSiteAudioSettings] = useState<SiteAudioSettings>({
@@ -252,11 +256,7 @@ export const StaffStreamingManager: React.FC = () => {
               setIsPremiere(true);
               setMediaType('video');
               setTitle('');
-              const d = new Date(Date.now() + 86400000);
-              const iso = new Date(d.getTime() - d.getTimezoneOffset() * 60000)
-                .toISOString()
-                .slice(0, 16);
-              setPremiereDateString(iso);
+              setPremiereDateString(applyQuickSchedulePreset('tomorrow-8pm'));
               setStatusMsg({ type: null, text: '' });
             }}
             className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-red-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md cursor-pointer"
@@ -326,20 +326,16 @@ export const StaffStreamingManager: React.FC = () => {
 
           <form onSubmit={handleSaveTrack} className="space-y-4">
             {isPremiere && (
-              <div className="p-4 rounded-xl bg-red-950/40 border border-red-500/40 space-y-2">
-                <span className="text-xs font-mono font-bold text-red-400 uppercase tracking-wider flex items-center gap-1.5">
-                  <Clock className="w-3.5 h-3.5" />
-                  <span>Scheduled Premiere Countdown Date &amp; Time</span>
-                </span>
-                <input
-                  type="datetime-local"
+              <div className="space-y-2">
+                <DateTimePickerField
+                  label="Scheduled Premiere Date & Time"
                   value={premiereDateString}
-                  onChange={(e) => setPremiereDateString(e.target.value)}
-                  className="w-full px-3.5 py-2 rounded-xl bg-neutral-950 border border-red-500/60 text-amber-300 text-xs font-mono focus:outline-none"
-                  required
+                  onChange={setPremiereDateString}
+                  accent="red"
+                  helperText="Auto-unlocks live when timer reaches zero"
                 />
-                <p className="text-[11px] text-neutral-400">
-                  When the countdown timer expires, the video automatically unlocks with a "🔴 BROADCASTING LIVE NOW" state for all connected visitors.
+                <p className="text-[11px] text-neutral-400 px-1">
+                  When the countdown timer expires, the video automatically unlocks with a &quot;🔴 BROADCASTING LIVE NOW&quot; state for all connected visitors.
                 </p>
               </div>
             )}

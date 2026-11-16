@@ -168,20 +168,14 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
       title: raw.title || raw.name || raw.projectTitle || 'MJJ Records Broadsheet',
       createdAt: raw.createdAt || new Date().toISOString(),
       updatedAt: raw.updatedAt || new Date().toISOString(),
-      pages: raw.pages || [],
+      pages: raw.pages || raw.projectData?.pages || [],
     };
-  };
-
-  const isChronicleDoc = (doc: any) => {
-    if (!doc) return false;
-    const str = String(doc.name || doc.title || doc.projectTitle || '');
-    return str.toLowerCase().includes('king of pop chronicle');
   };
 
   // Real-time Firestore sync subscriptions
   useEffect(() => {
     const unsubPub = subscribePublishedNewspaper((pub) => {
-      if (pub && pub.isActive && !isChronicleDoc(pub)) {
+      if (pub && pub.isActive) {
         setPublishedDoc(pub);
         setExpiresAt(pub?.expiresAt || null);
       } else {
@@ -199,8 +193,7 @@ export const MjjRecordsPortal: React.FC<MjjRecordsPortalProps> = ({
     });
 
     const unsubProj = subscribeAllPublishedNewspapers((pubs) => {
-      const cleanPubs = (pubs || []).filter((p) => !isChronicleDoc(p));
-      setArchives(cleanPubs);
+      setArchives(pubs || []);
     });
 
     const unsubUsers = subscribeUsers((users) => {
